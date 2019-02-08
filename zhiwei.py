@@ -122,51 +122,32 @@ def read(root_dir, stanford=False, seed=0, width=299, n_class=120):
     if stanford:
         image_dir = root_dir[:-1] if root_dir.endswith('/') else root_dir
         n = len(glob(image_dir + '/*/*.jpg'))
-        n = 256  # set to small value for testing only
+        # n = 256  # set to small value for testing only
 
-        X_299 = np.zeros((n, width, width, 3), dtype=np.uint8)
-        X_331 = np.zeros((n, 331, 331, 3), dtype=np.uint8)
+        X = np.zeros((n, width, width, 3), dtype=np.uint8)
         y = np.zeros((n, n_class), dtype=np.uint8)
 
         for i, file_name in tqdm(enumerate(glob(image_dir + '/*/*.jpg')), total=n):
             if i == n: break
-            y_label = file_name.split('/')[3][10:].lower()
+            y_label = file_name.split('/')[6][10:].lower()
             img = cv2.imread(file_name)
-            X_299[i] = cv2.resize(img, (width, width))
-            X_331[i] = cv2.resize(img, (331, 331))
+            X[i] = cv2.resize(img, (width, width))
             y[i][class_to_num[y_label]] = 1
         #end for
     else:
         n = len(df)
-        n = 256  # set to small value for testing only
+        # n = 256  # set to small value for testing only
 
-        X_299 = np.zeros((n, width, width, 3), dtype=np.uint8)
-        X_331 = np.zeros((n, 331, 331, 3), dtype=np.uint8)
+        X = np.zeros((n, width, width, 3), dtype=np.uint8)
         y = np.zeros((n, n_class), dtype=np.uint8)
         for i in range(n):
             img = cv2.imread(root_dir + '/%s.jpg' % df['id'][i])
-            X_299[i] = cv2.resize(img, (width, width))
-            X_331[i] = cv2.resize(img, (331, 331))
+            X[i] = cv2.resize(img, (width, width))
             y[i][class_to_num[df['breed'][i]]] = 1
         #end for
     #end if
 
-    # image_dir = root_dir[:-1] if root_dir.endswith('/') else root_dir
-    # n = len(glob(image_dir + '/*/*.jpg'))
-    # n = 256  # set to small value for testing only
-
-    # X = np.zeros((n, width, width, 3), dtype=np.uint8)
-    # y = np.zeros((n, n_class), dtype=np.uint8)
-
-    # for i, file_name in tqdm(enumerate(glob(image_dir + '/*/*.jpg')), total=n):
-    #     if i == n: break
-    #     y_label = file_name.split('/')[3][10:].lower()
-    #     img = cv2.imread(file_name)
-    #     X[i] = cv2.resize(img, (width, width))
-    #     y[i][class_to_num[y_label]] = 1
-    # #end for
-
-    return X_299, X_331, y, class_to_num, num_to_class
+    return X, y, class_to_num, num_to_class, breed
 #end def
 
 
@@ -192,17 +173,25 @@ def main():
 
     # set seed
     np.random.seed(A.seed)
-    X_299, X_331, y, class_to_num, num_to_class = read(A.train_image, stanford=A.stanford, seed=A.seed, width=WIDTH, n_class=N_CLASS)
+    X_299, y, class_to_num, num_to_class, breed = read(A.train_image, stanford=A.stanford, seed=A.seed, width=WIDTH, n_class=N_CLASS)
 
     plot_sample_figure(X_299, y, num_to_class, './images/sample.png')
 
     inception_features = get_features(InceptionResNetV2, data=X_299, width=WIDTH)
+    del X_299
+
+    X_331, y, class_to_num, num_to_class, breed = read(A.train_image, stanford=A.stanford, seed=A.seed, width=331, n_class=N_CLASS)
     nas_net_features = get_features(NASNetLarge, data=X_331, width=331)
+    del X_331
+
     features = np.concatenate([inception_features, nas_net_features], axis=-1)
+    del inception_features
+    del nas_net_features
 
     train_features, val_features, train_y, val_y = train_test_split(features, y, test_size=0.1)
     
     model = build_model(input_shape=features.shape[1:], output_shape=N_CLASS)
+    del features
 
     train_steps, train_batches = batch_iter(train_features, train_y, batch_size=128)
     val_steps, val_batches = batch_iter(val_features, val_y, batch_size=128)
@@ -233,8 +222,40 @@ def main():
         callbacks=callbacks_list
     )
 
+    del train_features
+    del val_features
+    del train_y
+    del val_y
+    del train_batches
+    del val_batches
+
     plot_history(h=history, path='./images/train_cost.png')
+
+    df2 = pd.read_csv('./data/sample_submission.csv')
+    n_test = len(df2)
+    X_299_test = np.zeros((n_test, WIDTH, WIDTH, 3), dtype=np.uint8)
+    X_331_test = np.zeros((n_test, 331, 331, 3), dtype=np.uint8)
+    for i in tqdm(range(n_test)):
+        img = cv2.imread('./data/test/%s.jpg' % df2['id'][i])
+        X_299_test[i] = cv2.resize(img, (WIDTH, WIDTH))
+        X_331_test[i] = cv2.resize(img, (331, 331))
+    #end for
+    
+    inception_features_test = get_features(InceptionResNetV2, data=X_299_test, width=WIDTH)
+    del X_299_test
+    nas_net_features_test = get_features(NASNetLarge, data=X_331_test, width=331)
+    del X_331_test
+    features_test = np.concatenate([inception_features_test, nas_net_features_test], axis=-1)
+    del inception_features_test
+    del nas_net_features_test
+    
+    test_steps, test_batches = predict_iter(features_test)
+    y_pred = model.predict_generator(generator=test_batches, steps=test_steps)
+    for b in breed:
+        df2[b] = y_pred[ : ,class_to_num[b]]
+    df2.to_csv('./data/pred.csv', index=None)
 #end def
+
 
 
 if __name__ == '__main__': main()
