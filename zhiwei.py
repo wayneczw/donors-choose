@@ -15,7 +15,7 @@ from keras.models import *
 from keras.optimizers import *
 from keras.regularizers import *
 from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffle as sk_shuffle
+# from sklearn.utils import shuffle as sk_shuffle
 from tqdm import tqdm
 
 WIDTH = 299
@@ -112,7 +112,7 @@ def get_features(MODEL, data, width=299):
 #end def
 
 
-def read(root_dir, stanford=False, shuffle=True, seed=0, width=299, n_class=120):
+def read(root_dir, stanford=False, seed=0, width=299, n_class=120):
     df = pd.read_csv('./data/labels.csv')
     breed = set(df['breed'])
 
@@ -124,25 +124,29 @@ def read(root_dir, stanford=False, shuffle=True, seed=0, width=299, n_class=120)
         n = len(glob(image_dir + '/*/*.jpg'))
         n = 256  # set to small value for testing only
 
-        X = np.zeros((n, width, width, 3), dtype=np.uint8)
+        X_299 = np.zeros((n, width, width, 3), dtype=np.uint8)
+        X_331 = np.zeros((n, 331, 331, 3), dtype=np.uint8)
         y = np.zeros((n, n_class), dtype=np.uint8)
 
         for i, file_name in tqdm(enumerate(glob(image_dir + '/*/*.jpg')), total=n):
             if i == n: break
             y_label = file_name.split('/')[3][10:].lower()
             img = cv2.imread(file_name)
-            X[i] = cv2.resize(img, (width, width))
+            X_299[i] = cv2.resize(img, (width, width))
+            X_331[i] = cv2.resize(img, (331, 331))
             y[i][class_to_num[y_label]] = 1
         #end for
     else:
         n = len(df)
         n = 256  # set to small value for testing only
 
-        X = np.zeros((n, width, width, 3), dtype=np.uint8)
+        X_299 = np.zeros((n, width, width, 3), dtype=np.uint8)
+        X_331 = np.zeros((n, 331, 331, 3), dtype=np.uint8)
         y = np.zeros((n, n_class), dtype=np.uint8)
         for i in range(n):
             img = cv2.imread(root_dir + '/%s.jpg' % df['id'][i])
-            X[i] = cv2.resize(img, (width, width))
+            X_299[i] = cv2.resize(img, (width, width))
+            X_331[i] = cv2.resize(img, (331, 331))
             y[i][class_to_num[df['breed'][i]]] = 1
         #end for
     #end if
@@ -162,10 +166,7 @@ def read(root_dir, stanford=False, shuffle=True, seed=0, width=299, n_class=120)
     #     y[i][class_to_num[y_label]] = 1
     # #end for
 
-    if shuffle:
-        X, y = sk_shuffle(X, y, random_state=seed)
-
-    return X, y, class_to_num, num_to_class
+    return X_299, X_331, y, class_to_num, num_to_class
 #end def
 
 
@@ -191,13 +192,13 @@ def main():
 
     # set seed
     np.random.seed(A.seed)
-    X, y, class_to_num, num_to_class = read(A.train_image, stanford=A.stanford, seed=A.seed, width=WIDTH, n_class=N_CLASS)
+    X_299, X_331, y, class_to_num, num_to_class = read(A.train_image, stanford=A.stanford, seed=A.seed, width=WIDTH, n_class=N_CLASS)
 
-    plot_sample_figure(X, y, num_to_class, './images/sample.png')
+    plot_sample_figure(X_299, y, num_to_class, './images/sample.png')
 
-    inception_features = get_features(InceptionV3, data=X, width=WIDTH)
-    xception_features = get_features(Xception, data=X, width=WIDTH)
-    features = np.concatenate([inception_features, xception_features], axis=-1)
+    inception_features = get_features(InceptionResNetV2, data=X_299, width=WIDTH)
+    nas_net_features = get_features(NASNetLarge, data=X_331, width=331)
+    features = np.concatenate([inception_features, nas_net_features], axis=-1)
 
     train_features, val_features, train_y, val_y = train_test_split(features, y, test_size=0.1)
     
