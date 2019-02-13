@@ -1,7 +1,5 @@
-# dog-breed
+# DonorsChoose
 
 ## Data
-Dog Breed Identification
-data type: image 
-size: 690MB 
-multi-class classification problem https://www.kaggle.com/c/dog-breed-identification
+DonorsChoose.org Application Screening
+data type: csv size: 195MB binary classification problem https://www.kaggle.com/c/donorschoose-application-screening
