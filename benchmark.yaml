@@ -13,7 +13,7 @@ seed: 0
 
 # Text - only set one of them to be True
 embedding:
-  tfidf: True #benchmark - ZW
+  tfidf: True #benchmark
   use: False #-ZW
   word_vector: False #-ZW
   word_path: data/crawl-300d-2M.vec
