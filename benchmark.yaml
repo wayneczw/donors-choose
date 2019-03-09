@@ -1,0 +1,54 @@
+---
+# data
+train: data/train.csv
+test: data/test.csv
+resources: data/resources.csv
+quick: False #set True if want to quickly test if the script runs smoothly
+batch_size: 1024
+epochs: 3
+output_csv: data/test_output.csv #to be changed for each experiment
+
+# seed
+seed: 0
+
+# Text - only set one of them to be True
+embedding:
+  tfidf: True #benchmark - ZW
+  use: False #-ZW
+  word_vector: False #-ZW
+  word_path: data/crawl-300d-2M.vec
+
+# Feature engineering - 
+# for benchmark params, always set True
+total_price: True #benchmark
+quantity: True #benchmark
+submission_time: True #benchmark
+polarity: True #benchmark
+subjectivity: False #WH
+sent_count: False #WH
+word_count: False #WH
+max_price: False #WH
+mean_price: False #WH
+min_price: False #WH
+pos_count: False #GY
+keyword_count: False #GY
+common_word_count: False #GY
+
+# Categorical Features - only set one of them to be True
+cat_encoding:
+  one_hot_encoding: True #benchmark
+  mean_encoding: False #Kennard
+  count_encoding: False #Kennard
+
+# Numerical Features
+polynomial: False #not implemented yet, to be added by #WH
+
+attention: False #not implemented yet, to be added by #MR
+
+dpcnn: False #notimplemented yet, to be added by #Kennard
+
+# Model architecture - only set one of them to be True
+model_type:
+  nn: True #benchmark
+  xgboost: False #not implemented yet, to be added by #GY
+  lgbm: False #not implemented yet, to be added by #MR
