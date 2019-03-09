@@ -43,3 +43,23 @@ id - unique id of the project application; joins with test.csv. and train.csv on
 description - description of the resource requested
 quantity - quantity of resource requested
 price - price of resource requested
+
+
+## Benchmark
+Run
+	
+	pip install -r requirements.txt
+
+There are 2 scripts involved:
+1. benchmark.yaml
+* change the param settings in this script
+* change train/test data path in this script
+* change output path in this script
+2. benchmark.py
+* the script that runs the training
+* command:
+
+	python -m benchmark
+
+#### Work distribution
+See benchmark.yaml's comments for your parts to run.
