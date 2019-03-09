@@ -28,8 +28,8 @@ subjectivity: False #WH
 sent_count: False #WH
 word_count: False #WH
 max_price: False #WH
-mean_price: False #WH
-min_price: False #WH
+mean_price: False #MR
+min_price: False #MR
 pos_count: False #GY
 keyword_count: False #GY
 common_word_count: False #GY
