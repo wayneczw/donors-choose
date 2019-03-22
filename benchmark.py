@@ -45,6 +45,7 @@ from textblob import TextBlob
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import PolynomialFeatures
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 
@@ -183,6 +184,10 @@ def get_word_count(text):
         return 0
 #end def
 
+def get_polynomial_array(array, degree=2):
+    poly = PolynomialFeatures(degree)
+    return poly.fit_transform(array)
+#end def
 
 def get_pos_count(text):
     d = Counter([t[1] for t in pos_tag(text.split())])
