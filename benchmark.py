@@ -48,6 +48,23 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+from sklearn.utils import shuffle
+
+
+
+from keras.layers import GlobalAveragePooling1D, LSTM, Dropout, BatchNormalization,Conv1D
+from keras.preprocessing import text, sequence
+from keras.layers import  MaxPooling1D, Conv1D
+from keras.layers import add, PReLU, BatchNormalization, GlobalMaxPooling1D
+
+
+from keras import backend as K
+from keras import optimizers
+from keras import initializers, regularizers, constraints, callbacks
+
+
 logger = logging.getLogger(__name__)
 ncores = cpu_count()
 
@@ -266,7 +283,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
 
     df = df.drop(['teacher_id', 'project_submitted_datetime'], axis=1)
 
-    if quick: df = df[:40000]
+    if quick: df = df[:100]
 
     # simple data format cleaning
     df[categorical_features] = df[categorical_features].apply(lambda x: x.astype('category'))
@@ -330,6 +347,13 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
                 'description'])
         #end if
 
+        if config['model_type']['dpcnn']:
+            df['project_essay_1'].fillna('unknown')
+            df['project_essay_2'].fillna('unknown')
+            df['project_essay_3'].fillna('unknown')
+            df['project_essay_4'].fillna('unknown')
+            df['project_desc'] = df[['project_subject_categories','project_subject_subcategories','project_title','project_resource_summary','project_essay_1', 'project_essay_2', 'project_essay_3', 'project_essay_4' ]].apply(lambda x: ' '.join(x), axis=1 )
+            #df['project_desc'] = df['project_subject_categories'] + ' ' + df['project_subject_subcategories'] + ' ' + df['project_title'] + ' ' + df['project_resource_summary'] + ' ' + df['project_essay']
         df = df.drop(['all_essays'], axis=1)
 
         # clean up continuous features
@@ -543,6 +567,136 @@ def build_model_word_vector(
     model.compile(optimizer=optimizers.Adam(0.0005, decay=1e-6),
                   loss='binary_crossentropy',
                   metrics=['accuracy', auc])
+
+    return model
+#end def
+
+
+def build_model_dpcnn(
+    cat_input_shape,
+    cont_input_shape,
+    project_input_shape,
+    resource_input_shape,
+    text_embedding_matrix,
+    text_max_features,
+    output_shape=1,    
+    kernel_regularizer = 0,
+    activity_regularizer=0,
+    bias_regularizer=0, 
+    dropout_rate=0,
+    **kwargs):
+
+    # dpcnn config
+    pj_repeat = 3
+    rs_repeat = 1
+    dpcnn_folds = 5
+    filter_nr = 32
+    filter_size = 3
+    max_pool_size = 3
+    max_pool_strides = 2
+    dense_nr = 64
+    spatial_dropout = 0.2
+    dense_dropout = 0.05
+    
+
+    logger.info("Setting up DPCNN")
+
+    cat_input = Input(cat_input_shape, name='cat_input')
+    cat = Dense(
+        16,
+        activation='relu',
+        kernel_regularizer=regularizers.l2(kernel_regularizer),
+        bias_regularizer=regularizers.l2(bias_regularizer))(cat_input)  # down size the learnt representation
+    cat = Dropout(dropout_rate)(cat)
+
+    cont_input = Input(cont_input_shape, name='cont_input')
+    cont = Dense(
+        16,
+        activation='relu',
+        kernel_regularizer=regularizers.l2(kernel_regularizer),
+        bias_regularizer=regularizers.l2(bias_regularizer))(cont_input)  # down size the learnt representation
+    cont = Dropout(dropout_rate)(cont)
+
+    # Project dpcnn
+    project_input = Input(shape=project_input_shape, name='project_input')
+    emb_project = Embedding(
+        text_max_features, 300,
+        weights=[text_embedding_matrix],
+        trainable=False)(project_input)
+    emb_project = SpatialDropout1D(spatial_dropout)(emb_project)
+
+    pj_block1 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(emb_project)
+    pj_block1 = BatchNormalization()(pj_block1)
+    pj_block1 = PReLU()(pj_block1)
+    pj_block1 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(pj_block1)
+    pj_block1 = BatchNormalization()(pj_block1)
+    pj_block1 = PReLU()(pj_block1)
+
+    #we pass embedded comment through conv1d with filter size 1 because it needs to have the same shape as block output
+    #if you choose filter_nr = embed_size (300 in this case) you don't have to do this part and can add emb_comment directly to block1_output
+    pj_resize_emb = Conv1D(filter_nr, kernel_size=1, padding='same', activation='linear')(emb_project)
+    pj_resize_emb = PReLU()(pj_resize_emb)
+        
+    pj_block1_output = add([pj_block1, pj_resize_emb])
+    # pj_block1_output = MaxPooling1D(pool_size=max_pool_size, strides=max_pool_strides)(pj_block1_output)
+    for _ in range(pj_repeat):  
+        pj_block1_output = MaxPooling1D(pool_size=max_pool_size, strides=max_pool_strides)(pj_block1_output)
+        pj_block2 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(pj_block1_output)
+        pj_block2 = BatchNormalization()(pj_block2)
+        pj_block2 = PReLU()(pj_block2)
+        pj_block2 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(pj_block2)
+        pj_block2 = BatchNormalization()(pj_block2)
+        pj_block2 = PReLU()(pj_block2)
+        pj_block1_output = add([pj_block2, pj_block1_output])
+
+    # resource dpcnn
+    resource_input = Input(shape=resource_input_shape, name='resource_input')
+    emb_resource = Embedding(text_max_features, 300, weights=[text_embedding_matrix], trainable=False)(resource_input)
+    emb_resource = SpatialDropout1D(spatial_dropout)(emb_resource)
+
+    rs_block1 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(emb_resource)
+    rs_block1 = BatchNormalization()(rs_block1)
+    rs_block1 = PReLU()(rs_block1)
+    rs_block1 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(rs_block1)
+    rs_block1 = BatchNormalization()(rs_block1)
+    rs_block1 = PReLU()(rs_block1)
+
+    #we pass embedded comment through conv1d with filter size 1 because it needs to have the same shape as block output
+    #if you choose filter_nr = embed_size (300 in this case) you don't have to do this part and can add emb_comment directly to block1_output
+    rs_resize_emb = Conv1D(filter_nr, kernel_size=1, padding='same', activation='linear')(emb_resource)
+    rs_resize_emb = PReLU()(rs_resize_emb)
+
+    rs_block1_output = add([rs_block1, rs_resize_emb])
+    # rs_block1_output = MaxPooling1D(pool_size=max_pool_size, strides=max_pool_strides)(rs_block1_output)
+    for _ in range(rs_repeat):  
+        rs_block1_output = MaxPooling1D(pool_size=max_pool_size, strides=max_pool_strides)(rs_block1_output)
+        rs_block2 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(rs_block1_output)
+        rs_block2 = BatchNormalization()(rs_block2)
+        rs_block2 = PReLU()(rs_block2)
+        rs_block2 = Conv1D(filter_nr, kernel_size=filter_size, padding='same', activation='linear')(rs_block2)
+        rs_block2 = BatchNormalization()(rs_block2)
+        rs_block2 = PReLU()(rs_block2)
+        rs_block1_output = add([rs_block2, rs_block1_output])
+
+    pj_output = GlobalMaxPooling1D()(pj_block1_output)
+    pj_output = BatchNormalization()(pj_output)
+    rs_output = GlobalMaxPooling1D()(rs_block1_output)
+    rs_output = BatchNormalization()(rs_output)
+
+    # combine
+    # num_input = Input(shape=num_input_shape, name='num_input')
+    # bn_inp_num = BatchNormalization()(num_input)
+    conc = concatenate([pj_output, rs_output, cat, cont])
+
+    output = Dense(dense_nr, activation='linear')(conc)
+    output = BatchNormalization()(output)
+    output = PReLU()(output)
+    output = Dropout(dense_dropout)(output)
+    output = Dense(output_shape, activation='sigmoid', name='output')(output)
+    model = Model(inputs=[project_input, resource_input, cat_input, cont_input], outputs=output)
+    model.compile(loss='binary_crossentropy', 
+                optimizer='nadam',
+                metrics=['accuracy'])
 
     return model
 #end def
@@ -815,6 +969,147 @@ def batch_iter_use(
     return num_batches, _data_generator()
 #end def
 
+
+def batch_iter_dpcnn(
+    X_cat,
+    X_cont,
+    X_project,
+    X_resource,
+    y,
+    batch_size=128, **kwargs):
+
+    data_size = X_cat.shape[0]
+    num_batches = int((data_size - 1) / batch_size) + 1
+
+    def _data_generator():
+        while True:
+            # Shuffle the data at each epoch
+            shuffled_indices = np.random.permutation(np.arange(data_size, dtype=np.int))
+
+            for i in range(num_batches):
+                start_index = i * batch_size
+                end_index = min((i + 1) * batch_size, data_size)
+
+                X_cat_batch = [X_cat[i] for i in shuffled_indices[start_index:end_index]]
+                X_cont_batch = [X_cont[i] for i in shuffled_indices[start_index:end_index]]
+                X_project_batch = [X_project[i] for i in shuffled_indices[start_index:end_index]]
+                X_resource_batch = [X_resource[i] for i in shuffled_indices[start_index:end_index]]
+                y_batch = [y[i] for i in shuffled_indices[start_index:end_index]]
+
+                yield ({
+                    'cat_input': np.asarray(X_cat_batch),
+                    'cont_input': np.asarray(X_cont_batch),
+                    'project_input': np.asarray(X_project_batch),
+                    'resource_input': np.asarray(X_resource_batch),
+                    },
+                    {'output': np.asarray(y_batch)})
+            #end for
+        #end while
+    #end def
+
+    return num_batches, _data_generator()
+#end def
+
+
+def predict_iter_dpcnn(
+    X_cat,
+    X_cont,
+    X_project,
+    X_resource,
+    batch_size=128, **kwargs):
+
+    data_size = X_cat.shape[0]
+    num_batches = int((data_size - 1) / batch_size) + 1
+
+    def _data_generator():
+        for i in range(num_batches):
+            start_index = i * batch_size
+            end_index = min((i + 1) * batch_size, data_size)
+
+            X_cat_batch = [x for x in X_cat[start_index:end_index]]
+            X_cont_batch = [x for x in X_cont[start_index:end_index]]
+            X_project_batch = [x for x in X_project[start_index:end_index]]
+            X_resource_batch = [x for x in X_resource[start_index:end_index]]
+
+            yield ({
+                'cat_input': np.asarray(X_cat_batch),
+                'cont_input': np.asarray(X_cont_batch),
+                'project_input': np.asarray(X_project_batch),
+                'resource_input': np.asarray(X_resource_batch),
+                })
+        #end for
+    #end def
+
+    return num_batches, _data_generator()
+#end def
+
+
+def test_dpcnn(
+    model,
+    X_cat_test,
+    X_cont_test,
+    X_project_test,
+    X_resource_test,
+    batch_size=128, **kwargs):
+
+    test_steps, test_batches = predict_iter_dpcnn(
+        X_cat_test, X_cont_test, X_project_test, X_resource_test,
+        batch_size=batch_size, **kwargs)
+
+    return model.predict_generator(generator=test_batches, steps=test_steps)
+#end def
+
+def train_dpcnn(
+    model,
+    X_cat_train,
+    X_cont_train,
+    X_project_train,
+    X_resource_train,
+    y_train,
+    batch_size=128,
+    epochs=32, **kwargs):
+
+    tf_session = tf.Session()
+    K.set_session(tf_session)
+    K.get_session().run(tf.tables_initializer())
+
+    init_op = tf.global_variables_initializer()
+    tf_session.run(init_op)
+
+    train_steps, train_batches = batch_iter_dpcnn(
+        X_cat_train, X_cont_train, X_project_train, X_resource_train,
+        y_train,
+        batch_size=batch_size)
+
+    # define early stopping callback
+    callbacks_list = []
+    early_stopping = dict(monitor='loss', patience=1, min_delta=0.001, verbose=1)
+    model_checkpoint = dict(filepath='./weights/{loss:.5f}_{epoch:04d}.weights.h5',
+                            save_best_only=False,
+                            save_weights_only=True,
+                            mode='auto',
+                            period=1,
+                            verbose=1)
+
+    earlystop = EarlyStopping(**early_stopping)
+    callbacks_list.append(earlystop)
+
+    checkpoint = ModelCheckpoint(**model_checkpoint)
+    callbacks_list.append(checkpoint)
+
+    
+    model.fit_generator(
+        epochs=epochs,
+        generator=train_batches,
+        steps_per_epoch=train_steps,
+        callbacks=callbacks_list)
+    """
+    model.load_weights('weights/0.37696_0003.weights.h5')
+    logger.info("weights loaded; Training skipped")
+    """
+    return model
+
+#end def
 
 def train_use(
     model,
@@ -1117,10 +1412,20 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         text_max_features = 100000
         text_max_len = 300
         text_embed_size = 300
-        train_word_text, test_word_text, text_embedding_matrix = text_tokenize(
-            train_df, test_df, col_name='all_text',
-            num_words=text_max_features, maxlen=text_max_len,
-            embeddings_index=embeddings_index, embed_size=text_embed_size)
+        if config['model_type']['nn']:
+            train_word_text, test_word_text, text_embedding_matrix = text_tokenize(
+                train_df, test_df, col_name='all_text',
+                num_words=text_max_features, maxlen=text_max_len,
+                embeddings_index=embeddings_index, embed_size=text_embed_size)
+        elif config['model_type']['dpcnn']:
+            train_project_text, test_project_text, text_embedding_matrix = text_tokenize(
+                train_df, test_df, col_name='project_desc',
+                num_words=text_max_features, maxlen=text_max_len,
+                embeddings_index=embeddings_index, embed_size=text_embed_size)
+            train_resource_text, test_resource_text, text_embedding_matrix = text_tokenize(
+                train_df, test_df, col_name='description',
+                num_words=text_max_features, maxlen=text_max_len,
+                embeddings_index=embeddings_index, embed_size=text_embed_size)
     elif config['embedding']['use']:
         pass
     #end if
@@ -1190,45 +1495,121 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         model = train_use(**train_input_dict)
     elif config['embedding']['word_vector']:
-        model = build_model_word_vector(
-            cat_input_shape=train_cat.shape[1:],
-            cont_input_shape=train_cont.shape[1:],
-            all_text_input_shape=train_word_text.shape[1:],
-            text_embedding_matrix=text_embedding_matrix,
-            text_max_features=text_max_features,
-            output_shape=1)
-        print(model.summary())
+        if config['model_type']['nn']:
+            model = build_model_word_vector(
+                cat_input_shape=train_cat.shape[1:],
+                cont_input_shape=train_cont.shape[1:],
+                all_text_input_shape=train_word_text.shape[1:],
+                text_embedding_matrix=text_embedding_matrix,
+                text_max_features=text_max_features,
+                output_shape=1)
+            train_input_dict = dict(
+                model=model,
+                X_cat_train=train_cat,
+                X_cont_train=train_cont,
+                X_all_text_train=train_word_text,
+                y_train=y_train,
+                class_weight=None,
+                batch_size=config['batch_size'],
+                epochs=config['epochs'])
+            model = train(**train_input_dict)
+        elif config['model_type']['dpcnn']:
+            model = build_model_dpcnn(
+                cat_input_shape=train_cat.shape[1:],
+                cont_input_shape=train_cont.shape[1:],
+                project_input_shape=train_project_text.shape[1:],
+                resource_input_shape=train_resource_text.shape[1:],
+                text_embedding_matrix=text_embedding_matrix,
+                text_max_features=text_max_features,
+                output_shape=1)
+            train_input_dict = dict(
+                model=model,
+                X_cat_train=train_cat,
+                X_cont_train=train_cont,
+                X_project_train=train_project_text,
+                X_resource_train=train_resource_text,
+                y_train=y_train,
+                class_weight=None,
+                batch_size=config['batch_size'],
+                epochs=config['epochs'])
+            model = train_dpcnn(**train_input_dict)
 
-        train_input_dict = dict(
-            model=model,
-            X_cat_train=train_cat,
-            X_cont_train=train_cont,
-            X_all_text_train=train_word_text,
-            y_train=y_train,
-            class_weight=None,
-            batch_size=config['batch_size'],
-            epochs=config['epochs'])
-
-        model = train(**train_input_dict)
     elif config['embedding']['tfidf']:
-        model = build_model_tfidf(
-            cat_input_shape=train_cat.shape[1:],
-            cont_input_shape=train_cont.shape[1:],
-            all_text_input_shape=train_tfidf_text.shape[1:],
-            output_shape=1)
-        print(model.summary())
 
-        train_input_dict = dict(
-            model=model,
-            X_cat_train=train_cat,
-            X_cont_train=train_cont,
-            X_all_text_train=train_tfidf_text,
-            y_train=y_train,
-            class_weight=None,
-            batch_size=config['batch_size'],
-            epochs=config['epochs'])
 
-        model = train(**train_input_dict)
+        # use random forest classifier
+        if (config['model_type']['rfc']):
+            from sklearn.ensemble import RandomForestClassifier
+            from scipy.sparse import csr_matrix, hstack
+            import scipy.sparse
+
+
+            logger.info("Setting up RandomForestClassifier...")
+
+            rfc_model = RandomForestClassifier( n_jobs=4, 
+                                            criterion="entropy",
+                                            max_depth=20, 
+                                            n_estimators=100, 
+                                            max_features='sqrt', 
+                                            random_state=233,
+                                            )
+                                            
+
+            train_features = hstack([scipy.sparse.coo_matrix(train_cat), train_cont, train_tfidf_text])
+            test_features = hstack([scipy.sparse.coo_matrix(test_cat), test_cont, test_tfidf_text])
+                
+            rfc_model.fit(train_features, y_train)
+            train_input_dict = {'empty_dic':0}
+
+
+        # use FTRL
+        elif (config['model_type']['ftrl']):
+            from wordbatch.models import FTRL
+            from scipy.sparse import csr_matrix, hstack
+            import scipy.sparse
+
+            # NOTE: Remember to "export CC=gcc-8; export CXX=g++-8; pip install wordbatch"
+            logger.info("Setting up FTRL...")
+
+            def sigmoid(x):
+                return 1 / (1 + np.exp(-x))
+                    
+            train_features = hstack([scipy.sparse.coo_matrix(train_cat), train_cont, train_tfidf_text])
+            test_features = hstack([scipy.sparse.coo_matrix(test_cat), test_cont, test_tfidf_text])
+
+            ftrl_model =   FTRL(alpha=0.01, beta=0.1, L1=0.1, L2=1000.0, D=train_features.shape[1], iters=2, 
+                    inv_link="identity", threads=4)
+                    
+            ftrl_model.fit(train_features, y_train)
+            train_input_dict = {'empty_dic':0}
+            
+
+
+
+
+        else: # Build a regular neural net instead:
+
+            model = build_model_tfidf(
+                cat_input_shape=train_cat.shape[1:],
+                cont_input_shape=train_cont.shape[1:],
+                all_text_input_shape=train_tfidf_text.shape[1:],
+                output_shape=1)
+            print(model.summary())
+
+            train_input_dict = dict(
+                model=model,
+                X_cat_train=train_cat,
+                X_cont_train=train_cont,
+                X_all_text_train=train_tfidf_text,
+                y_train=y_train,
+                class_weight=None,
+                batch_size=config['batch_size'],
+                epochs=config['epochs'])
+
+            model = train(**train_input_dict)
+
+
+
     #end if
     del train_df, train_cat, train_cont, y_train, train_input_dict
     gc.collect()
@@ -1251,22 +1632,51 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         y_pred = test_use(**test_input_dict)
     elif config['embedding']['word_vector']:
-        test_input_dict = dict(
-            model=model,
-            X_cat_test=test_cat,
-            X_cont_test=test_cont,
-            X_all_text_test=test_word_text,
-            batch_size=64)
-        y_pred = test(**test_input_dict)
+        if config['model_type']['nn']:
+            test_input_dict = dict(
+                model=model,
+                X_cat_test=test_cat,
+                X_cont_test=test_cont,
+                X_all_text_test=test_word_text,
+                batch_size=64)
+            y_pred = test(**test_input_dict)
+        elif config['model_type']['dpcnn']:
+            test_input_dict = dict(
+                model=model,
+                X_cat_test=test_cat,
+                X_cont_test=test_cont,
+                X_project_test=test_project_text,
+                X_resource_test=test_resource_text,
+                batch_size=64)
+            y_pred = test_dpcnn(**test_input_dict)
+
     elif config['embedding']['tfidf']:
-        test_input_dict = dict(
-            model=model,
-            X_cat_test=test_cat,
-            X_cont_test=test_cont,
-            X_all_text_test=test_tfidf_text,
-            batch_size=64)
-        y_pred = test(**test_input_dict)    
+        if (config['model_type']['rfc']):
+            y_pred = rfc_model.predict_proba(test_features)[:,1] 
+            logger.info("RandomForestClassifier Done")
+
+
+        elif (config['model_type']['ftrl']):
+            y_pred = ftrl_model.predict(test_features)
+            pred_nan = np.isnan(y_pred)
+            if pred_nan.shape[0] == y_pred.shape[0]:
+                y_pred[pred_nan] = 0
+            else:
+                y_pred[pred_nan] = np.nanmean(y_pred)
+            y_pred = sigmoid(y_pred)
+
+
+
+        else:
+            test_input_dict = dict(
+                model=model,
+                X_cat_test=test_cat,
+                X_cont_test=test_cont,
+                X_all_text_test=test_tfidf_text,
+                batch_size=64)
+            y_pred = test(**test_input_dict)    
     #end if
+
 
     return y_pred
 #end def

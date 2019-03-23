@@ -45,10 +45,12 @@ polynomial: False #not implemented yet, to be added by #WH
 
 attention: False #not implemented yet, to be added by #MR
 
-dpcnn: False #notimplemented yet, to be added by #Kennard
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: True #benchmark
+  nn: False #benchmark
+  dpcnn: False #notimplemented yet, to be added by #Kennard
   xgboost: False #not implemented yet, to be added by #GY
   lgbm: False #not implemented yet, to be added by #MR
+  rfc: False # implemented, added by #Kennard
+  ftrl: True # implemented, added by #Kennard
