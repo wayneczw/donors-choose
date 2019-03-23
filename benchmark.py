@@ -347,7 +347,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
                 'description'])
         #end if
 
-        if config['model_type']['dpcnn']:
+        if config['model_type']['dpcnn']:  
             df['project_essay_1'].fillna('unknown')
             df['project_essay_2'].fillna('unknown')
             df['project_essay_3'].fillna('unknown')
