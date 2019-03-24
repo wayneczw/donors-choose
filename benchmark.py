@@ -9,6 +9,7 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import yaml
 import pylab as pl
+import os
 
 from category_encoders.target_encoder import TargetEncoder
 
@@ -47,6 +48,14 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import KFold, RepeatedKFold
+from sklearn.preprocessing import LabelEncoder
+
+from tqdm import tqdm
+import lightgbm as lgb
+
 
 logger = logging.getLogger(__name__)
 ncores = cpu_count()
@@ -224,16 +233,18 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
 
     logger.info("Reading in data from {}....".format(resource_df_path))
 
-    resource_df = pd.read_csv(resource_df_path)
+
+    resource_df = pd.read_csv(resource_df_path, nrows = 100)
+#    resource_df = pd.read_csv(resource_df_path)
     resource_df['id'] = resource_df['id'].astype('category')
     resource_df[['price', 'quantity']] = resource_df[['price', 'quantity']].apply(pd.to_numeric)
     resource_df['description'] = resource_df['description'].astype(str)
-    
+
     resource_df['total_price'] = resource_df['price'] * resource_df['quantity']
 
     # get description
     resource_df_des = resource_df.groupby('id')['description'].apply('\n'.join).reset_index()
-    
+
     # get diff price attributes
     resource_df_price = resource_df.groupby('id')['total_price'].sum().to_frame()  # benchmark feature
     continuous_features.append('total_price')
@@ -245,7 +256,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
         continuous_features.append('min_price')
     if config['mean_price']:
         resource_df_price['mean_price'] = resource_df.groupby('id')['price'].mean()
-        continuous_features.append('mean_price')   
+        continuous_features.append('mean_price')
 
     if config['quantity']:
         resource_df_qty = resource_df.groupby('id')['quantity'].sum().to_frame()
@@ -256,7 +267,9 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
 
     logger.info("Reading in data from {}....".format(df_path))
 
-    df = pd.read_csv(df_path)
+
+    df = pd.read_csv(df_path, nrows = 1000)
+#    df = pd.read_csv(df_path)
     df = pd.merge(df, resource_df, on='id', how='left')
 
     # get submission time - benchmark feature
@@ -304,7 +317,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
             df[f] = make_multi_thread(clean, df[f])
 
         df['all_essays'] = df['project_essay_1'].str.cat(df[['project_essay_2', 'project_essay_3', 'project_essay_4']], sep='. ', na_rep=' ')
-        
+
         # get polarity
         if config['polarity']:
             df['polarity'] = make_multi_thread(get_polarity, df['all_essays'])
@@ -330,7 +343,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
                 'description'])
         #end if
 
-        df = df.drop(['all_essays'], axis=1)
+        # df = df.drop(['all_essays'], axis=1)
 
         # clean up continuous features
         df[continuous_features] = df[continuous_features].apply(pd.to_numeric)
@@ -358,7 +371,7 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
             df[f] = make_multi_thread(clean, df[f])
 
         df['all_essays'] = df['project_essay_1'].str.cat(df[['project_essay_2']], sep='. ', na_rep=' ')
-        
+
         # get polarity
         if config['polarity']:
             df['polarity'] = make_multi_thread(get_polarity, df['all_essays'])
@@ -432,7 +445,7 @@ def auc(y_true, y_pred):
         # N = total number of negative labels
         N = K.sum(1 - y_true)
         # FP = total number of false alerts, alerts from the negative class labels
-        FP = K.sum(y_pred - y_pred * y_true)    
+        FP = K.sum(y_pred - y_pred * y_true)
         return FP/N
     #end def
 
@@ -442,7 +455,7 @@ def auc(y_true, y_pred):
         # P = total number of positive labels
         P = K.sum(y_true)
         # TP = total number of correct alerts, alerts from the positive class labels
-        TP = K.sum(y_pred * y_true)    
+        TP = K.sum(y_pred * y_true)
         return TP/P
     #end def
 
@@ -495,7 +508,7 @@ def build_model_word_vector(
     kernel_regularizer=0,
     activity_regularizer=0,
     bias_regularizer=0, **kwargs):
-    
+
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
         16,
@@ -557,7 +570,7 @@ def build_model_tfidf(
     kernel_regularizer=0,
     activity_regularizer=0,
     bias_regularizer=0, **kwargs):
-    
+
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
         16,
@@ -623,7 +636,7 @@ def build_model_use(
     activity_regularizer=0,
     bias_regularizer=0,
     old=False, **kwargs):
-    
+
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
         16,
@@ -714,7 +727,7 @@ def build_model_use(
         activation='relu',
         kernel_regularizer=regularizers.l2(kernel_regularizer),
         bias_regularizer=regularizers.l2(bias_regularizer))(text)  # down size the learnt representation
-    
+
     x = concatenate([cat, cont, text])
 
     x = Dense(
@@ -1095,7 +1108,6 @@ def test(
     return model.predict_generator(generator=test_batches, steps=test_steps)
 #end def
 
-
 def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
     logger.info("Preparing word embeddings")
     if config['embedding']['tfidf']:
@@ -1112,7 +1124,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             min_df=5,
             max_df=.9)
         train_tfidf_text = tfidf_vec.fit_transform(train_df['all_text']).toarray()
-        test_tfidf_text = tfidf_vec.transform(test_df['all_text']).toarray()    
+        test_tfidf_text = tfidf_vec.transform(test_df['all_text']).toarray()
     elif config['embedding']['word_vector']:
         text_max_features = 100000
         text_max_len = 300
@@ -1265,12 +1277,138 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             X_cont_test=test_cont,
             X_all_text_test=test_tfidf_text,
             batch_size=64)
-        y_pred = test(**test_input_dict)    
+        y_pred = test(**test_input_dict)
     #end if
 
     return y_pred
 #end def
 
+def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+    df_all = pd.concat([train_df, test_df], axis=0)
+
+    logger.info("Preparing word embeddings")
+    if config['embedding']['tfidf']:
+        cols = [
+            'project_title',
+            'all_essays', # Concatenate 4 essay into all_essay
+            # 'project_essay_1',
+            # 'project_essay_2',
+            # 'project_essay_3',
+            # 'project_essay_4',
+            'project_resource_summary',
+            # 'description',
+        ]
+        n_features = [400, 5000, 400]
+        for c_i, c in tqdm(enumerate(cols)):
+            tfidf = TfidfVectorizer(max_features=n_features[c_i], min_df=3)
+            tfidf.fit(df_all[c])
+            tfidf_train = np.array(tfidf.transform(train_df[c]).todense(), dtype=np.float16)
+            tfidf_test = np.array(tfidf.transform(test_df[c]).todense(), dtype=np.float16)
+
+            for i in range(n_features[c_i]):
+                train_df[c + '_tfidf_' + str(i)] = tfidf_train[:, i]
+                test_df[c + '_tfidf_' + str(i)] = tfidf_test[:, i]
+
+            del tfidf, tfidf_train, tfidf_test
+            gc.collect()
+        print('Done.')
+
+
+    del df_all
+    gc.collect()
+
+    # Prepare data
+    cols_to_drop = [
+        'id',
+        'project_title',
+        'project_essay',
+        'project_resource_summary',
+        'project_is_approved',
+        'all_text',
+        'all_essays',
+        'project_essay_1',
+        'project_essay_2',
+        'project_essay_3',
+        'project_essay_4',
+        'description'
+    ]
+    X = train_df.drop(cols_to_drop, axis=1, errors='ignore')
+    y = train_df['project_is_approved']
+    X_test = test_df.drop(cols_to_drop, axis=1, errors='ignore')
+    feature_names = list(X.columns)
+    print(X.shape, X_test.shape)
+
+    del train_df, test_df
+    gc.collect()
+
+    # Build the model
+    cnt = 0
+    p_buf = []
+    n_splits = 5
+    n_repeats = 1
+    kf = RepeatedKFold(
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        random_state=0)
+    auc_buf = []
+
+    for train_index, valid_index in kf.split(X):
+        print('Fold {}/{}'.format(cnt + 1, n_splits))
+        params = {
+            'boosting_type': 'gbdt',
+            'objective': 'binary',
+            'metric': 'auc',
+            'max_depth': 16,
+            'num_leaves': 31,
+            'learning_rate': 0.025,
+            'feature_fraction': 0.85,
+            'bagging_fraction': 0.85,
+            'bagging_freq': 5,
+            'verbose': 0,
+            'num_threads': 44,
+            'lambda_l2': 1,
+            'min_gain_to_split': 0,
+        }
+
+        model = lgb.train(
+            params,
+            lgb.Dataset(X.loc[train_index], y.loc[train_index], feature_name=feature_names),
+            num_boost_round=10000,
+            valid_sets=[lgb.Dataset(X.loc[valid_index], y.loc[valid_index])],
+            early_stopping_rounds=100,
+            verbose_eval=100,
+        )
+
+        if cnt == 0:
+            importance = model.feature_importance()
+            model_fnames = model.feature_name()
+            tuples = sorted(zip(model_fnames, importance), key=lambda x: x[1])[::-1]
+            tuples = [x for x in tuples if x[1] > 0]
+            print('Important features:')
+            print(tuples[:50])
+
+        p = model.predict(X.loc[valid_index], num_iteration=model.best_iteration)
+        auc = roc_auc_score(y.loc[valid_index], p)
+
+        print('{} AUC: {}'.format(cnt, auc))
+
+        p = model.predict(X_test, num_iteration=model.best_iteration)
+        if len(p_buf) == 0:
+            p_buf = np.array(p)
+        else:
+            p_buf += np.array(p)
+        auc_buf.append(auc)
+
+        cnt += 1
+        if cnt > 0:  # Comment this to run several folds
+            break
+
+        del model
+        gc.collect
+
+    preds = p_buf / cnt
+
+    return preds
 
 def main():
     log_level = 'DEBUG'
@@ -1326,6 +1464,28 @@ def main():
         test_df = pd.concat([old_test_df, new_test_df], ignore_index=True)
         del old_test_df, new_test_df
         gc.collect()
+    elif config['model_type']['lgbm']:
+        string_features = []
+        categorical_features = [
+            'teacher_prefix', 'school_state',
+            'project_grade_category',
+            'project_subject_categories', 'project_subject_subcategories']
+        continuous_features = ['teacher_number_of_previously_posted_projects']
+        train_df = read(config['resources'], config['train'], quick=config['quick'],
+                        continuous_features=continuous_features, categorical_features=categorical_features,
+                        string_features=string_features)
+
+        string_features = []
+        categorical_features = [
+            'teacher_prefix', 'school_state',
+            'project_grade_category',
+            'project_subject_categories', 'project_subject_subcategories']
+        continuous_features = ['teacher_number_of_previously_posted_projects']
+        test_df = read(config['resources'], config['test'], quick=config['quick'],
+                       continuous_features=continuous_features, categorical_features=categorical_features,
+                       string_features=string_features)
+        test_df['project_is_approved'] = prepare_lgbm(train_df, test_df, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+
     else:
         string_features = []
         categorical_features = [
