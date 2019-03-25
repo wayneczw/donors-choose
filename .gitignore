@@ -1,8 +1,8 @@
-data/
 weights/
 images/
 venv/
 .DS_Store
+*.vec
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
