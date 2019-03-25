@@ -47,6 +47,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.preprocessing import PolynomialFeatures
 
 logger = logging.getLogger(__name__)
 ncores = cpu_count()
@@ -1158,6 +1159,13 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
     scaler = MinMaxScaler()
     train_cont = scaler.fit_transform(train_df[continuous_features])
     test_cont = scaler.transform(test_df[continuous_features])
+
+    # get polynomial array of all continuous attributes
+    if config['polynomial']:
+        poly = PolynomialFeatures()
+        train_cont = poly.fit_transform(train_cont)
+        test_cont = poly.transform(test_cont)
+    #end if
 
     # prepare y
     y_train = train_df['project_is_approved'].values
