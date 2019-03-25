@@ -1,12 +1,9 @@
-import calendar
 import gc
 import lightgbm as lgb
 import logging
 import numpy as np
 import pandas as pd
-import pylab as pl
 import random
-import regex as re
 import tensorflow as tf
 import tensorflow_hub as hub
 import yaml
@@ -34,19 +31,6 @@ from keras.models import Model
 from keras.preprocessing import sequence
 from keras.preprocessing import text
 
-
-import multiprocessing as mp
-
-from multiprocessing import cpu_count
-
-from nltk import sent_tokenize
-from nltk import word_tokenize
-from nltk.tag import pos_tag
-
-from collections import Counter
-
-from textblob import TextBlob
-
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import roc_auc_score
@@ -56,8 +40,6 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import PolynomialFeatures
 
 logger = logging.getLogger(__name__)
-ncores = cpu_count()
-
 
 target_feature = ['project_is_approved']
 
@@ -131,164 +113,29 @@ def USE_Embedding(x):
 #end def
 
 
-# def get_time_features(_df):
-#     def _month_year_to_str(month_num, year_num):
-#         return calendar.month_abbr[month_num] + '_' + str(year_num)
-#     #end def
-
-#     def _dayofweek_to_str(day_num):
-#         return calendar.day_name[day_num]
-#     #end def
-
-#     time_df = pd.to_datetime(_df['project_submitted_datetime'])
-#     _df['monthofyear'] = time_df.apply(lambda x: _month_year_to_str(x.month, x.year))
-#     _df['dayofweek'] = time_df.apply(lambda x: _dayofweek_to_str(x.dayofweek))
-#     return _df
-# #end def
-
-def get_monthofyear(x):
-    month_num = x.month
-    year_num = x.year
-    return calendar.month_abbr[month_num] + '_' + str(year_num)
-#end def
-
-
-def get_dayofweek(x):
-    day_num = x.dayofweek
-    return calendar.day_name[day_num]
-#end def
-
-
-def get_polarity(text):
-    textblob = TextBlob(text)
-    pol = textblob.sentiment.polarity
-    return round(pol, 2)
-#end def
-
-
-def get_subjectivity(text):
-    textblob = TextBlob(text)
-    subj = textblob.sentiment.subjectivity
-    return round(subj, 2)
-#end def
-
-
-def get_sent_count(text):
-    try:
-        return len(sent_tokenize(text))
-    except:
-        return 0
-#end def
-
-
-def get_word_count(text):
-    try:
-        return len(word_tokenize(text))
-    except:
-        return 0
-#end def
-
-
-def get_pos_count(text):
-    d = Counter([t[1] for t in pos_tag(text.split())])
-    return [d[t] for t in Tags]
-#end def
-
-
-def get_keyword_count(text):
-    d = Counter([word for word in text.split() if word in Keywords])
-    return [d[k] for k in Keywords]
-#end def
-
-
-def get_common_word_count(text):
-    tmp = text.split('[--]')
-    text1 = tmp[0]
-    text2 = tmp[1]
-
-    return len(set(re.split('\W', text1.lower())).intersection(re.split('\W', text2.lower())))
-#end def
-
-
-def clean(text):
-    
-    return re.sub('[!@#$:]', '', ' '.join(re.findall('\w{3,}', str(text).lower())))
-#end def
-
-
-def make_multi_thread(func, series):
-    with mp.Pool(ncores) as pool:
-        X = pool.imap(func, series, chunksize=1)
-        X = [x for x in X]
-    #end with
-    return pd.Series(X)
-#end def
-
-
-def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[], categorical_features=[], string_features=[]):
-
-    logger.info("Reading in data from {}....".format(resource_df_path))
-
-    resource_df = pd.read_csv(resource_df_path)
-    resource_df['id'] = resource_df['id'].astype('category')
-    resource_df[['price', 'quantity']] = resource_df[['price', 'quantity']].apply(pd.to_numeric)
-    resource_df['description'] = resource_df['description'].astype(str)
-    
-    resource_df['total_price'] = resource_df['price'] * resource_df['quantity']
-
-    # get description
-    resource_df_des = resource_df.groupby('id')['description'].apply('\n'.join).reset_index()
-    
-    # get diff price attributes
-    resource_df_price = resource_df.groupby('id')['total_price'].sum().to_frame()  # benchmark feature
-    continuous_features.append('total_price')
-    if config['max_price']:
-        resource_df_price['max_price'] = resource_df.groupby('id')['price'].max()
-        continuous_features.append('max_price')
-    if config['min_price']:
-        resource_df_price['min_price'] = resource_df.groupby('id')['price'].min()
-        continuous_features.append('min_price')
-    if config['mean_price']:
-        resource_df_price['mean_price'] = resource_df.groupby('id')['price'].mean()
-        continuous_features.append('mean_price')   
-
-    if config['quantity']:
-        resource_df_qty = resource_df.groupby('id')['quantity'].sum().to_frame()
-    resource_df = pd.merge(resource_df_des, resource_df_price, on='id', how='left')
-    if config['quantity']:
-        resource_df = pd.merge(resource_df, resource_df_qty, on='id', how='left')
-        continuous_features.append('quantity')
+def read(df_path, old=True, quick=False):
+    string_features = []
+    categorical_features = [
+        'teacher_prefix', 'school_state',
+        'project_grade_category',
+        'project_subject_categories', 'project_subject_subcategories',
+        'dayofweek', 'monthofyear',
+        ]
+    continuous_features = ['teacher_number_of_previously_posted_projects']
 
     logger.info("Reading in data from {}....".format(df_path))
 
     df = pd.read_csv(df_path)
-    df = pd.merge(df, resource_df, on='id', how='left')
 
-    # get submission time - benchmark feature
-    df['monthofyear'] = make_multi_thread(get_monthofyear,  pd.to_datetime(df['project_submitted_datetime']))
-    df['dayofweek'] = make_multi_thread(get_dayofweek,  pd.to_datetime(df['project_submitted_datetime']))
-    categorical_features.extend(['dayofweek', 'monthofyear'])
-
-    df = df.drop(['teacher_id', 'project_submitted_datetime'], axis=1)
-
-    if quick: df = df[:40000]
-
-    # simple data format cleaning
-    df[categorical_features] = df[categorical_features].apply(lambda x: x.astype('category'))
-    df[continuous_features] = df[continuous_features].apply(pd.to_numeric)
-    try: df['project_is_approved'] = df['project_is_approved'].astype('category')
-    except KeyError: pass
+    if quick:
+        df = df[:40000]
 
     if old:
-        if config['embedding']['use']: df = df[~df['project_essay_3'].isnull()].reset_index()
-        df[raw_string_features] = df[raw_string_features].fillna('').apply(lambda x: x.astype(str))
+        if config['embedding']['use']:
+            df = df[~df['project_essay_3'].isna()].reset_index()
 
         # get sent count of essays
         if config['sent_count']:
-            df['project_essay_1_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_1'])
-            df['project_essay_2_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_2'])
-            df['project_essay_3_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_3'])
-            df['project_essay_4_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_4'])
             continuous_features.extend([
                 'project_essay_1_sent_len', 'project_essay_2_sent_len',
                 'project_essay_3_sent_len', 'project_essay_4_sent_len'])
@@ -296,137 +143,87 @@ def read(resource_df_path, df_path, old=True, quick=False, continuous_features=[
 
         # get word count of essays
         if config['word_count']:
-            df['project_essay_1_word_len'] = make_multi_thread(get_word_count, df['project_essay_1'])
-            df['project_essay_2_word_len'] = make_multi_thread(get_word_count, df['project_essay_2'])
-            df['project_essay_3_word_len'] = make_multi_thread(get_word_count, df['project_essay_3'])
-            df['project_essay_4_word_len'] = make_multi_thread(get_word_count, df['project_essay_4'])
             continuous_features.extend([
                 'project_essay_1_word_len', 'project_essay_2_word_len',
                 'project_essay_3_word_len', 'project_essay_4_word_len'])
         #end if
 
-        for f in raw_string_features:
-            df[f] = make_multi_thread(clean, df[f])
-
-        df['all_essays'] = df['project_essay_1'].str.cat(df[['project_essay_2', 'project_essay_3', 'project_essay_4']], sep='. ', na_rep=' ')
-        
         # get polarity
         if config['polarity']:
-            df['polarity'] = make_multi_thread(get_polarity, df['all_essays'])
             continuous_features.append('polarity')
         #end if
 
         # get subjectivity
         if config['subjectivity']:
-            df['subjectivity'] = make_multi_thread(get_subjectivity, df['all_essays'])
             continuous_features.append('subjectivity')
         #end if
 
         # if tfidf/wordvector, merge all text into one
         if config['embedding']['tfidf'] or config['embedding']['word_vector']:
-            df['all_text'] = df['project_title'].str.cat(df[['all_essays', 'project_resource_summary', 'description']], sep='. ', na_rep=' ')
             string_features.append('all_text')
         elif config['embedding']['use']:
-            # multichannel, hence can drop all_essays
             string_features.extend([
                 'project_title', 'project_essay_1',
                 'project_essay_2', 'project_essay_3',
                 'project_essay_4', 'project_resource_summary',
                 'description'])
         #end if
-
-        # df = df.drop(['all_essays'], axis=1)
-
-        # clean up continuous features
-        df[continuous_features] = df[continuous_features].apply(pd.to_numeric)
     else:
-        df = df[df['project_essay_3'].isnull()].reset_index()
-        df[raw_string_features] = df[raw_string_features].fillna('').apply(lambda x: x.astype(str))
+        df = df[df['project_essay_3'].isna()].reset_index()
 
         # get sent count of essays
         if config['sent_count']:
-            df['project_essay_1_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_1'])
-            df['project_essay_2_sent_len'] = make_multi_thread(get_sent_count, df['project_essay_2'])
             continuous_features.extend([
                 'project_essay_1_sent_len', 'project_essay_2_sent_len'])
         #end if
 
         # get word count of essays
         if config['word_count']:
-            df['project_essay_1_word_len'] = make_multi_thread(get_word_count, df['project_essay_1'])
-            df['project_essay_2_word_len'] = make_multi_thread(get_word_count, df['project_essay_2'])
             continuous_features.extend([
                 'project_essay_1_word_len', 'project_essay_2_word_len'])
         #end if
 
-        for f in raw_string_features:
-            df[f] = make_multi_thread(clean, df[f])
-
-        df['all_essays'] = df['project_essay_1'].str.cat(df[['project_essay_2']], sep='. ', na_rep=' ')
-        
         # get polarity
         if config['polarity']:
-            df['polarity'] = make_multi_thread(get_polarity, df['all_essays'])
             continuous_features.append('polarity')
         #end if
 
         # get subjectivity
         if config['subjectivity']:
-            df['subjectivity'] = make_multi_thread(get_subjectivity, df['all_essays'])
             continuous_features.append('subjectivity')
         #end if
 
         # if tfidf/wordvector, merge all text into one
         if config['embedding']['tfidf'] or config['embedding']['word_vector']:
-            df['all_text'] = df['project_title'].str.cat(df[['all_essays', 'project_resource_summary', 'description']], sep='. ', na_rep=' ')
             string_features.append('all_text')
-
-        # df = df.drop(['all_essays'], axis=1)
-
-        # clean up continuous features
-        df[continuous_features] = df[continuous_features].apply(pd.to_numeric)
+        elif config['embedding']['use']:
+            string_features.extend([
+                'project_title', 'project_essay_1',
+                'project_essay_2', 'project_resource_summary',
+                'description'])
+        #end if
     #end if
 
     # get pos count for each text attribute
     if config['pos_count']:
-        for f in raw_string_features:
-            temp = pl.array(list(make_multi_thread(get_pos_count, df[f])))
-
-            for i, t in enumerate(Tags):
-                df[f + '_' + t + '_count'] = temp[:, i]
-                continuous_features.append(f + '_' + t + '_count')
-            #end for
-        #end for
+        continuous_features.extend([f + '_' + t + '_count' for f in raw_string_features for t in Tags])
     #end if
 
     # get keyword count for each text attribute
     if config['keyword_count']:
-        for f in raw_string_features:
-            temp = pl.array(list(make_multi_thread(get_keyword_count, df[f])))
-
-            for i, t in enumerate(Keywords):
-                df[f + '_' + t + '_count'] = temp[:, i]
-                continuous_features.append(f + '_' + t + '_count')
-            #end for
-        #end for
+        continuous_features.extend([f + '_' + t + '_count' for f in raw_string_features for t in Keywords])
     #end if
 
     # get common word count for each text attribute pair
     if config['common_word_count']:
-        for i, f1 in enumerate(raw_string_features[:-1]):
-            for f2 in raw_string_features[i+1:]:
-                df[f1 + f2] = df[f1].str.cat(df[f2], sep='[--]', na_rep=' ')
-                df['%s_%s_common' % (f1, f2)] = make_multi_thread(get_common_word_count, df[f1 + f2])
-                continuous_features.append('%s_%s_common' % (f1, f2))
-            #end for
-        #end for
+        continuous_features.extend(['%s_%s_common' % (f1, f2) for i, f1 in enumerate(raw_string_features[:-1]) for f2 in raw_string_features[i+1:]])
     #end if
 
     logger.info("Done reading in {} data....".format(df.shape[0]))
 
     df['teacher_prefix'] = df['teacher_prefix'].fillna('Teacher')
 
-    return df
+    return df, continuous_features, categorical_features, string_features
 #end def
 
 
@@ -846,18 +643,30 @@ def train_use(
 
     if old:
         train_steps, train_batches = batch_iter_use(
-            X_cat_train, X_cont_train, X_title_train,
-            X_essay1_train, X_essay2_train,
-            X_resource_summary_train, X_description_train,
-            y_train, X_essay3_train, X_essay4_train,
-            batch_size=batch_size, old=old)
+            X_cat_train,
+            X_cont_train,
+            X_title_train,
+            X_essay1_train,
+            X_essay2_train,
+            X_resource_summary_train,
+            X_description_train,
+            y_train,
+            X_essay3_train,
+            X_essay4_train,
+            batch_size=batch_size,
+            old=old)
     else:
         train_steps, train_batches = batch_iter_use(
-            X_cat_train, X_cont_train, X_title_train,
-            X_essay1_train, X_essay2_train,
-            X_resource_summary_train, X_description_train,
+            X_cat_train,
+            X_cont_train,
+            X_title_train,
+            X_essay1_train,
+            X_essay2_train,
+            X_resource_summary_train,
+            X_description_train,
             y_train,
-            batch_size=batch_size, old=old)
+            batch_size=batch_size,
+            old=old)
 
     # define early stopping callback
     callbacks_list = []
@@ -874,6 +683,32 @@ def train_use(
 
     checkpoint = ModelCheckpoint(**model_checkpoint)
     callbacks_list.append(checkpoint)
+
+    # if old:
+    #     x_dict = dict(
+    #         cat_input=X_cat_train,
+    #         cont_input=X_cont_train,
+    #         title_input=X_title_train,
+    #         essay1_input=X_essay1_train,
+    #         essay2_input=X_essay2_train,
+    #         essay3_input=X_essay3_train,
+    #         essay4_input=X_essay4_train,
+    #         resource_summary_input=X_resource_summary_train,
+    #         description_input=X_description_train,
+    #         )
+    # else:
+    #     x_dict = dict(
+    #         cat_input=X_cat_train,
+    #         cont_input=X_cont_train,
+    #         title_input=X_title_train,
+    #         essay1_input=X_essay1_train,
+    #         essay2_input=X_essay2_train,
+    #         resource_summary_input=X_resource_summary_train,
+    #         description_input=X_description_train,
+    #         )
+
+    # y_dict = dict(output=y_train)
+    # model.fit(x_dict, y_dict, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list)
 
     model.fit_generator(
         epochs=epochs,
@@ -961,51 +796,20 @@ def test_use(
     old=False, **kwargs):
 
     test_steps, test_batches = predict_iter_use(
-        X_cat_test, X_cont_test, X_title_test,
-        X_essay1_test, X_essay2_test,
-        X_resource_summary_test, X_description_test,
-        X_essay3=X_essay3_test, X_essay4=X_essay4_test,
-        batch_size=batch_size, old=old, **kwargs)
+        X_cat_test,
+        X_cont_test,
+        X_title_test,
+        X_essay1_test,
+        X_essay2_test,
+        X_resource_summary_test,
+        X_description_test,
+        X_essay3=X_essay3_test,
+        X_essay4=X_essay4_test,
+        batch_size=batch_size,
+        old=old,
+        **kwargs)
 
     return model.predict_generator(generator=test_batches, steps=test_steps)
-#end def
-
-
-def batch_iter(
-    X_cat,
-    X_cont,
-    X_all_text,
-    y,
-    batch_size=128, **kwargs):
-
-    data_size = X_cat.shape[0]
-    num_batches = int((data_size - 1) / batch_size) + 1
-
-    def _data_generator():
-        while True:
-            # Shuffle the data at each epoch
-            shuffled_indices = np.random.permutation(np.arange(data_size, dtype=np.int))
-
-            for i in range(num_batches):
-                start_index = i * batch_size
-                end_index = min((i + 1) * batch_size, data_size)
-
-                X_cat_batch = [X_cat[i] for i in shuffled_indices[start_index:end_index]]
-                X_cont_batch = [X_cont[i] for i in shuffled_indices[start_index:end_index]]
-                X_all_text_batch = [X_all_text[i] for i in shuffled_indices[start_index:end_index]]
-                y_batch = [y[i] for i in shuffled_indices[start_index:end_index]]
-
-                yield ({
-                    'cat_input': np.asarray(X_cat_batch),
-                    'cont_input': np.asarray(X_cont_batch),
-                    'all_text_input': np.asarray(X_all_text_batch),
-                    },
-                    {'output': np.asarray(y_batch)})
-            #end for
-        #end while
-    #end def
-
-    return num_batches, _data_generator()
 #end def
 
 
@@ -1025,11 +829,6 @@ def train(
     init_op = tf.global_variables_initializer()
     tf_session.run(init_op)
 
-    train_steps, train_batches = batch_iter(
-        X_cat_train, X_cont_train, X_all_text_train,
-        y_train,
-        batch_size=batch_size)
-
     # define early stopping callback
     callbacks_list = []
     early_stopping = dict(monitor='loss', patience=1, min_delta=0.001, verbose=1)
@@ -1046,43 +845,14 @@ def train(
     checkpoint = ModelCheckpoint(**model_checkpoint)
     callbacks_list.append(checkpoint)
 
-    model.fit_generator(
-        epochs=epochs,
-        generator=train_batches,
-        steps_per_epoch=train_steps,
-        callbacks=callbacks_list)
-
+    x_dict = dict(
+        cat_input=X_cat_train,
+        cont_input=X_cont_train,
+        all_text_input=X_all_text_train,
+        )
+    y_dict = dict(output=y_train)
+    model.fit(x_dict, y_dict, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list)
     return model
-#end def
-
-
-def predict_iter(
-    X_cat,
-    X_cont,
-    X_all_text,
-    batch_size=128, **kwargs):
-
-    data_size = X_cat.shape[0]
-    num_batches = int((data_size - 1) / batch_size) + 1
-
-    def _data_generator():
-        for i in range(num_batches):
-            start_index = i * batch_size
-            end_index = min((i + 1) * batch_size, data_size)
-
-            X_cat_batch = [x for x in X_cat[start_index:end_index]]
-            X_cont_batch = [x for x in X_cont[start_index:end_index]]
-            X_all_text_batch = [x for x in X_all_text[start_index:end_index]]
-
-            yield ({
-                'cat_input': np.asarray(X_cat_batch),
-                'cont_input': np.asarray(X_cont_batch),
-                'all_text_input': np.asarray(X_all_text_batch),
-                })
-        #end for
-    #end def
-
-    return num_batches, _data_generator()
 #end def
 
 
@@ -1093,15 +863,17 @@ def test(
     X_all_text_test,
     batch_size=128, **kwargs):
 
-    test_steps, test_batches = predict_iter(
-        X_cat_test, X_cont_test, X_all_text_test,
-        batch_size=batch_size, **kwargs)
-
-    return model.predict_generator(generator=test_batches, steps=test_steps)
+    x_dict = dict(
+        cat_input=X_cat_test,
+        cont_input=X_cont_test,
+        all_text_input=X_all_text_test,
+        )
+    return model.predict(x_dict, batch_size=batch_size)
 #end def
 
 
 def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+    ############################
     logger.info("Preparing word embeddings")
     if config['embedding']['tfidf']:
         tfidf_vec = TfidfVectorizer(
@@ -1111,7 +883,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             stop_words='english',
             analyzer='word',
             token_pattern=r'\w{1,}',
-            ngram_range=(1, 3),
+            ngram_range=(1, 2),
             dtype=np.float32,
             norm='l2',
             min_df=5,
@@ -1130,6 +902,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         pass
     #end if
 
+    ############################
     logger.info("Encoding categorical features")
     # encode categorical features
     if config['cat_encoding']['one_hot_encoding']:
@@ -1158,6 +931,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         #end for
     #end if
 
+    ############################
     logger.info("Normalizing continuous features")
     # normalize train continuous features
     scaler = MinMaxScaler()
@@ -1171,9 +945,11 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         test_cont = poly.transform(test_cont)
     #end if
 
+    ############################
     # prepare y
-    y_train = train_df['project_is_approved'].values
+    y_train = pd.to_numeric(train_df['project_is_approved']).values
 
+    ############################
     logger.info("Model building and training on train data")
     # build model
     if config['embedding']['use']:
@@ -1245,6 +1021,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
     del train_df, train_cat, train_cont, y_train, train_input_dict
     gc.collect()
 
+    ############################
     logger.info('Model testing on test data')
     if config['embedding']['use']:
         test_input_dict = dict(
@@ -1301,7 +1078,11 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
         ]
         n_features = [400, 5000, 400]
         for c_i, c in tqdm(enumerate(cols)):
-            tfidf = TfidfVectorizer(max_features=n_features[c_i], min_df=3)
+            tfidf = TfidfVectorizer(
+                max_features=n_features[c_i],
+                min_df=3,
+                norm='l2',
+                ngrams=(1, 2))
             tfidf.fit(df_all[c])
             tfidf_train = np.array(tfidf.transform(train_df[c]).todense(), dtype=np.float16)
             tfidf_test = np.array(tfidf.transform(test_df[c]).todense(), dtype=np.float16)
@@ -1358,7 +1139,7 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
             'boosting_type': 'gbdt',
             'objective': 'binary',
             'metric': 'auc',
-            'max_depth': 16,
+            'max_depth': 14,
             'num_leaves': 31,
             'learning_rate': 0.025,
             'feature_fraction': 0.85,
@@ -1366,7 +1147,7 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
             'bagging_freq': 5,
             'verbose': 0,
             'num_threads': 44,
-            'lambda_l2': 1,
+            'lambda_l2': 1.0,
             'min_gain_to_split': 0,
         }
 
@@ -1413,6 +1194,8 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 #end def
 
 
+
+
 def main():
     log_level = 'DEBUG'
     log_format = '%(asctime)-15s [%(name)s-%(process)d] %(levelname)s: %(message)s'
@@ -1428,84 +1211,68 @@ def main():
     if config['embedding']['use']:
         # if using USE, then need to load the text cols separately
         old = True
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        old_train_df = read(config['resources'], config['train'], quick=config['quick'], old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+        old_train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'], old=old)
+        old_test_df, _, _, _ = read(config['test'], quick=config['quick'], old=old)
 
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        old_test_df = read(config['resources'], config['test'], quick=config['quick'], old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
-        old_test_df['project_is_approved'] = prepare_nn(old_train_df, old_test_df, old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+        old_test_df['project_is_approved'] = prepare_nn(
+            old_train_df,
+            old_test_df,
+            old=old,
+            continuous_features=continuous_features,
+            categorical_features=categorical_features,
+            string_features=string_features)
         del old_train_df
         gc.collect()
 
         old = False
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        new_train_df = read(config['resources'], config['train'], quick=config['quick'], old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        new_test_df = read(config['resources'], config['test'], quick=config['quick'], old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
-        new_test_df['project_is_approved'] = prepare_nn(new_train_df, new_test_df, old=old, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+        new_train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'], old=old)
+        new_test_df, _, _, _ = read(config['test'], quick=config['quick'], old=old)
+
+        new_test_df['project_is_approved'] = prepare_nn(
+            new_train_df,
+            new_test_df,
+            old=old,
+            continuous_features=continuous_features,
+            categorical_features=categorical_features,
+            string_features=string_features)
 
         test_df = pd.concat([old_test_df, new_test_df], ignore_index=True)
-        del old_test_df, new_test_df
-        gc.collect()
+        del new_train_df, old_test_df, new_test_df
     elif config['model_type']['lgbm']:
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        train_df = read(config['resources'], config['train'], quick=config['quick'],
-                        continuous_features=continuous_features, categorical_features=categorical_features,
-                        string_features=string_features)
+        train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
+        test_df, _, _, _ = read(config['test'], quick=config['quick'])
 
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        test_df = read(config['resources'], config['test'], quick=config['quick'],
-                       continuous_features=continuous_features, categorical_features=categorical_features,
-                       string_features=string_features)
-        test_df['project_is_approved'] = prepare_lgbm(train_df, test_df, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+        test_df['project_is_approved'] = prepare_lgbm(
+            train_df,
+            test_df,
+            continuous_features=continuous_features,
+            categorical_features=categorical_features,
+            string_features=string_features)
+        del train_df
+    # elif config['model_type']['xgb']:
+    #     train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
+    #     test_df, _, _, _ = read(config['test'], quick=config['quick'])
+
+    #     test_df['project_is_approved'] = prepare_lgbm(
+    #         train_df,
+    #         test_df,
+    #         continuous_features=continuous_features,
+    #         categorical_features=categorical_features,
+    #         string_features=string_features)
+    #     del train_df    
     else:
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        train_df = read(config['resources'], config['train'], quick=config['quick'], continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
-        
-        string_features = []
-        categorical_features = [
-            'teacher_prefix', 'school_state',
-            'project_grade_category',
-            'project_subject_categories', 'project_subject_subcategories']
-        continuous_features = ['teacher_number_of_previously_posted_projects']
-        test_df = read(config['resources'], config['test'], quick=config['quick'], continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
-        test_df['project_is_approved'] = prepare_nn(train_df, test_df, continuous_features=continuous_features, categorical_features=categorical_features, string_features=string_features)
+        train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
+        test_df, _, _, _ = read(config['test'], quick=config['quick'])
+
+        test_df['project_is_approved'] = prepare_nn(
+            train_df,
+            test_df,
+            continuous_features=continuous_features,
+            categorical_features=categorical_features,
+            string_features=string_features)
+        del train_df
     #end if
+    gc.collect()
 
     logger.info('Writing results to: {}'.format(config['output_csv']))
     out_df = test_df[['id', 'project_is_approved']]
