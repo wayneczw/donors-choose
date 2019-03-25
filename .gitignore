@@ -3,6 +3,7 @@ images/
 venv/
 .DS_Store
 *.vec
+/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

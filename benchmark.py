@@ -7,6 +7,7 @@ import random
 import tensorflow as tf
 import tensorflow_hub as hub
 import yaml
+import xgboost as xgb
 
 from tqdm import tqdm
 from category_encoders.target_encoder import TargetEncoder
@@ -223,7 +224,11 @@ def read(df_path, old=True, quick=False):
 
     df['teacher_prefix'] = df['teacher_prefix'].fillna('Teacher')
 
-    return df, continuous_features, categorical_features, string_features
+    final_features = continuous_features + categorical_features + string_features
+    if config['model_type']['lgbm']:
+        final_features += 'all_essays'
+
+    return df[final_features], continuous_features, categorical_features, string_features
 #end def
 
 
@@ -684,32 +689,6 @@ def train_use(
     checkpoint = ModelCheckpoint(**model_checkpoint)
     callbacks_list.append(checkpoint)
 
-    # if old:
-    #     x_dict = dict(
-    #         cat_input=X_cat_train,
-    #         cont_input=X_cont_train,
-    #         title_input=X_title_train,
-    #         essay1_input=X_essay1_train,
-    #         essay2_input=X_essay2_train,
-    #         essay3_input=X_essay3_train,
-    #         essay4_input=X_essay4_train,
-    #         resource_summary_input=X_resource_summary_train,
-    #         description_input=X_description_train,
-    #         )
-    # else:
-    #     x_dict = dict(
-    #         cat_input=X_cat_train,
-    #         cont_input=X_cont_train,
-    #         title_input=X_title_train,
-    #         essay1_input=X_essay1_train,
-    #         essay2_input=X_essay2_train,
-    #         resource_summary_input=X_resource_summary_train,
-    #         description_input=X_description_train,
-    #         )
-
-    # y_dict = dict(output=y_train)
-    # model.fit(x_dict, y_dict, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list)
-
     model.fit_generator(
         epochs=epochs,
         generator=train_batches,
@@ -1064,6 +1043,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
     df_all = pd.concat([train_df, test_df], axis=0)
 
+    ############################
     logger.info("Preparing word embeddings")
     if config['embedding']['tfidf']:
         cols = [
@@ -1194,6 +1174,110 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 #end def
 
 
+def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+    def test_xgboost(model, X_test):
+        dtest = xgb.DMatrix(X_test)
+
+        y_pred = model.predict(dtest)
+
+        return y_pred
+    #end def
+
+    def train_xgboost(X_train, y_train):
+        params_xgb = {
+            'eta': 0.05,
+            'max_depth': 4,
+            'subsample': 0.85,
+            'colsample_bytree': 0.25,
+            'min_child_weight': 3,
+            'objective': 'binary:logistic',
+            'eval_metric': 'auc',
+            'seed': 0,
+            'silent': 1,
+        }
+
+        dtrain = xgb.DMatrix(X_train, label=y_train)
+        model = xgb.train(params_xgb, dtrain, 30)
+        return model
+    #end def
+
+    ############################
+    logger.info("Preparing word embeddings")
+    if config['embedding']['tfidf']:
+        tfidf_vec = TfidfVectorizer(
+            max_features=10000,
+            sublinear_tf=True,
+            strip_accents='unicode',
+            stop_words='english',
+            analyzer='word',
+            token_pattern=r'\w{1,}',
+            ngram_range=(1, 2),
+            dtype=np.float32,
+            norm='l2',
+            min_df=5,
+            max_df=.9)
+        train_tfidf_text = tfidf_vec.fit_transform(train_df['all_text']).toarray()
+        test_tfidf_text = tfidf_vec.transform(test_df['all_text']).toarray()
+    else:
+        raise ValueError('xgboost only supports tfidf for now')
+    #end if
+
+    ############################
+    logger.info("Encoding categorical features")
+    # encode categorical features
+    if config['cat_encoding']['one_hot_encoding']:
+        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values)
+        test_cat = cat_encoder.transform(test_df[categorical_features].values)
+    elif config['cat_encoding']['mean_encoding']:
+        cat_encoder = TargetEncoder()
+        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values, pd.to_numeric(train_df['project_is_approved']).values).values
+        test_cat = cat_encoder.transform(test_df[categorical_features].values).values
+    elif config['cat_encoding']['count_encoding']:
+        for i, f in enumerate(categorical_features):
+            cat_encoder = CountVectorizer(
+                binary=True,
+                ngram_range=(1, 1),
+                tokenizer=lambda x: [a.strip() for a in x.split(',')])
+            if i == 0:
+                train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
+                test_cat = cat_encoder.transform(test_df[f]).toarray()
+            else:
+                _train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
+                _test_cat = cat_encoder.transform(test_df[f]).toarray()
+                train_cat = np.hstack((train_cat, _train_cat))
+                test_cat = np.hstack((test_cat, _test_cat))
+            #end if
+        #end for
+    #end if
+
+    ############################
+    logger.info("Normalizing continuous features")
+    # normalize train continuous features
+    scaler = MinMaxScaler()
+    train_cont = scaler.fit_transform(train_df[continuous_features])
+    test_cont = scaler.transform(test_df[continuous_features])
+
+    # get polynomial array of all continuous attributes
+    if config['polynomial']:
+        poly = PolynomialFeatures()
+        train_cont = poly.fit_transform(train_cont)
+        test_cont = poly.transform(test_cont)
+    #end if
+
+    ############################
+    # prepare y
+    y_train = train_df['project_is_approved'].values
+
+    ############################
+    X_train = np.hstack(train_tfidf_text, train_cat, train_cont)
+    model = train_xgboost(X_train, y_train)
+
+    X_test = np.hstack(test_tfidf_text, test_cat, test_cont)
+    y_pred = test_xgboost(model, X_test)
+
+    return y_pred
+#end def
 
 
 def main():
@@ -1249,17 +1333,17 @@ def main():
             categorical_features=categorical_features,
             string_features=string_features)
         del train_df
-    # elif config['model_type']['xgb']:
-    #     train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
-    #     test_df, _, _, _ = read(config['test'], quick=config['quick'])
+    elif config['model_type']['xgb']:
+        train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
+        test_df, _, _, _ = read(config['test'], quick=config['quick'])
 
-    #     test_df['project_is_approved'] = prepare_lgbm(
-    #         train_df,
-    #         test_df,
-    #         continuous_features=continuous_features,
-    #         categorical_features=categorical_features,
-    #         string_features=string_features)
-    #     del train_df    
+        test_df['project_is_approved'] = prepare_xgboost(
+            train_df,
+            test_df,
+            continuous_features=continuous_features,
+            categorical_features=categorical_features,
+            string_features=string_features)
+        del train_df    
     else:
         train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
         test_df, _, _, _ = read(config['test'], quick=config['quick'])
