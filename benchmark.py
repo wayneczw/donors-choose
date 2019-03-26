@@ -236,11 +236,18 @@ def read(df_path, old=True, quick=False):
 
     df['teacher_prefix'] = df['teacher_prefix'].fillna('Teacher')
 
-    final_features = continuous_features + categorical_features + string_features
-    if config['model_type']['lgbm']:
-        final_features += 'all_essays'
+    try:
+        final_features = ['id'] + target_feature + continuous_features + categorical_features + string_features
+        if config['model_type']['lgbm']:
+            final_features += 'all_essays'
 
-    return df[final_features], continuous_features, categorical_features, string_features
+        return df[final_features], continuous_features, categorical_features, string_features
+    except KeyError:
+        final_features = ['id'] + continuous_features + categorical_features + string_features
+        if config['model_type']['lgbm']:
+            final_features += 'all_essays'
+
+        return df[final_features], continuous_features, categorical_features, string_features
 #end def
 
 
@@ -1169,7 +1176,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             stop_words='english',
             analyzer='word',
             token_pattern=r'\w{1,}',
-            ngram_range=(1, 2),
+            ngram_range=(1, 3),
             dtype=np.float32,
             norm='l2',
             min_df=5,

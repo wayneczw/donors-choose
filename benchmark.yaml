@@ -6,16 +6,16 @@ resources: data/resources.csv
 quick: False #set True if want to quickly test if the script runs smoothly
 batch_size: 1024
 epochs: 3
-output_csv: data/test_output.csv #to be changed for each experiment
+output_csv: data/benchmark_output.csv #to be changed for each experiment
 
 # seed
 seed: 0
 
 # Text - only set one of them to be True
 embedding:
-  tfidf: False #benchmark
+  tfidf: True #benchmark
   use: False #ZW
-  word_vector: True #ZW
+  word_vector: False #ZW
   word_path: data/crawl-300d-2M.vec
 
 # Feature engineering - 
@@ -45,9 +45,9 @@ polynomial: False #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: False #benchmark
+  nn: True #benchmark
   dpcnn: False #not fully implemented yet, to be added by #Kennard
-  xgboost: False # implemented yet, added by #GY
+  xgb: False # implemented yet, added by #GY
   lgbm: False # not implemented yet, to be added by #MR
   rfc: False # implemented, added by #Kennard
-  ftrl: True # implemented, added by #Kennard
+  ftrl: False # implemented, added by #Kennard
