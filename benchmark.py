@@ -1680,10 +1680,10 @@ def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], catego
     y_train = train_df['project_is_approved'].values
 
     ############################
-    X_train = np.hstack(train_tfidf_text, train_cat, train_cont)
+    X_train = np.hstack([train_tfidf_text, train_cat, train_cont])
     model = train_xgboost(X_train, y_train)
 
-    X_test = np.hstack(test_tfidf_text, test_cat, test_cont)
+    X_test = np.hstack([test_tfidf_text, test_cat, test_cont])
     y_pred = test_xgboost(model, X_test)
 
     return y_pred

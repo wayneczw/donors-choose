@@ -45,9 +45,9 @@ polynomial: False #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: True #benchmark
+  nn: False #benchmark
   dpcnn: False #not fully implemented yet, to be added by #Kennard
-  xgb: False # implemented yet, added by #GY
+  xgb: True # implemented yet, added by #GY
   lgbm: False # not implemented yet, to be added by #MR
   rfc: False # implemented, added by #Kennard
   ftrl: False # implemented, added by #Kennard
