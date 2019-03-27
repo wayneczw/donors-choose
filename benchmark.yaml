@@ -15,8 +15,8 @@ seed: 0
 
 # Text - only set one of them to be True
 embedding:
-  tfidf: True #benchmark
-  use: False #ZW
+  tfidf: False #benchmark
+  use: True #ZW
   word_vector: False #ZW
   word_path: data/crawl-300d-2M.vec
 
@@ -47,9 +47,9 @@ polynomial: False #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: True #benchmark
+  nn: False #benchmark
   dpcnn: False #not fully implemented yet, to be added by #Kennard
   xgb: False #implemented, added by #GY
-  lgbm: False #implemented, to be added by #MR
+  lgbm: True #implemented, to be added by #MR
   rfc: False #implemented, added by #Kennard
   ftrl: False #implemented, added by #Kennard

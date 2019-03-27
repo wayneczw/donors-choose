@@ -250,13 +250,13 @@ def read(df_path, old=True, quick=False):
 
     try:
         final_features = ['id'] + target_feature + continuous_features + categorical_features + string_features
-        if config['model_type']['lgbm']:
-            final_features += 'all_essays'
+        if config['model_type']['lgbm'] and config['embedding']['tfidf']:
+            final_features += ['all_essays']
         return df[final_features], continuous_features, categorical_features, string_features
     except KeyError:
         final_features = ['id'] + continuous_features + categorical_features + string_features
-        if config['model_type']['lgbm']:
-            final_features += 'all_essays'
+        if config['model_type']['lgbm'] and config['embedding']['tfidf']:
+            final_features += ['all_essays']
         return df[final_features], continuous_features, categorical_features, string_features
     #end try
 #end def
@@ -1455,19 +1455,21 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 
         model = lgb.train(
             params,
-            lgb.Dataset(X_train[train_index, :], y_train[train_index, :], feature_name=feature_names),
+            lgb.Dataset(X_train[train_index], y_train[train_index]),
             num_boost_round=10000,
-            valid_sets=[lgb.Dataset(X_train[valid_index, :], y_train[valid_index, :])],
+            valid_sets=[lgb.Dataset(X_train[valid_index], y_train[valid_index])],
             early_stopping_rounds=100,
             verbose_eval=100,
         )
 
-        p = model.predict(X_train.loc[valid_index], num_iteration=model.best_iteration)
-        auc = roc_auc_score(y_train.loc[valid_index], p)
+        # p = model.predict(X_train.loc[valid_index], num_iteration=model.best_iteration)
+        p = model.predict_proba(X_train[valid_index], num_iteration=model.best_iteration)
+        auc = roc_auc_score(y_train[valid_index], p)
 
         print('{} AUC: {}'.format(cnt, auc))
 
-        p = model.predict(X_test, num_iteration=model.best_iteration)
+        # p = model.predict(X_test, num_iteration=model.best_iteration)
+        p = model.predict_proba(X_test, num_iteration=model.best_iteration)
         if len(p_buf) == 0:
             p_buf = np.array(p)
         else:
