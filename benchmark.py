@@ -1463,13 +1463,13 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
         )
 
         # p = model.predict(X_train.loc[valid_index], num_iteration=model.best_iteration)
-        p = model.predict_proba(X_train[valid_index], num_iteration=model.best_iteration)
+        p = model.predict(X_train[valid_index], num_iteration=model.best_iteration)
         auc = roc_auc_score(y_train[valid_index], p)
 
         print('{} AUC: {}'.format(cnt, auc))
 
         # p = model.predict(X_test, num_iteration=model.best_iteration)
-        p = model.predict_proba(X_test, num_iteration=model.best_iteration)
+        p = model.predict(X_test, num_iteration=model.best_iteration)
         if len(p_buf) == 0:
             p_buf = np.array(p)
         else:
