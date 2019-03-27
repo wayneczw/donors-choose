@@ -2,6 +2,8 @@
 # data
 train: data/train_processed.csv
 test: data/test_processed.csv
+train_use: data/train_use.joblib
+test_use: data/test_use.joblib
 resources: data/resources.csv
 quick: False #set True if want to quickly test if the script runs smoothly
 batch_size: 1024
@@ -45,9 +47,9 @@ polynomial: False #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: False #benchmark
+  nn: True #benchmark
   dpcnn: False #not fully implemented yet, to be added by #Kennard
-  xgb: True # implemented yet, added by #GY
-  lgbm: False # not implemented yet, to be added by #MR
-  rfc: False # implemented, added by #Kennard
-  ftrl: False # implemented, added by #Kennard
+  xgb: False #implemented, added by #GY
+  lgbm: False #implemented, to be added by #MR
+  rfc: False #implemented, added by #Kennard
+  ftrl: False #implemented, added by #Kennard
