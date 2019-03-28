@@ -214,11 +214,11 @@ def read(df_path, old=True, quick=False):
             string_features.append('all_text')
         elif config['embedding']['use']:
             if config['model_type']['nn']:
-                string_features.extend([
-                    'project_title', 'project_essay_1',
-                    'project_essay_2', 'project_resource_summary',
-                    'description'])
-            else:
+            #     string_features.extend([
+            #         'project_title', 'project_essay_1',
+            #         'project_essay_2', 'project_resource_summary',
+            #         'description'])
+            # else:
                 string_features.extend([
                     'project_title', 'project_essay_1',
                     'project_essay_2', 'project_essay_3',
@@ -1494,8 +1494,8 @@ def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], catego
     def test_xgboost(model, X_test):
         dtest = xgb.DMatrix(X_test)
 
-        # y_pred = model.predict(dtest)
-        y_pred = model.predict_proba(dtest)
+        y_pred = model.predict(dtest)
+        # y_pred = model.predict_proba(dtest)
 
         return y_pred
     #end def
