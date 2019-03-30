@@ -1263,6 +1263,55 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         model = train(**train_input_dict)
     #end if
+
+    ############################
+    logger.info('Model testing on train data')
+    if config['embedding']['use']:
+        test_input_dict = dict(
+            model=model,
+            X_cat_test=train_cat,
+            X_cont_test=train_cont,
+            X_title_test=train_df['project_title'].values,
+            X_essay1_test=train_df['project_essay_1'].values,
+            X_essay2_test=train_df['project_essay_2'].values,
+            X_essay3_test=train_df['project_essay_3'].values,
+            X_essay4_test=train_df['project_essay_4'].values,
+            X_resource_summary_test=train_df['project_resource_summary'].values,
+            X_description_test=train_df['description'].values,
+            batch_size=64,
+            old=old)
+
+        y_train_pred = test_use(**test_input_dict)
+    elif config['embedding']['word_vector']:
+        if config['model_type']['nn']:
+            test_input_dict = dict(
+                model=model,
+                X_cat_test=train_cat,
+                X_cont_test=train_cont,
+                X_all_text_test=train_word_text,
+                batch_size=64)
+            y_train_pred = test(**test_input_dict)
+        elif config['model_type']['dpcnn']:
+            test_input_dict = dict(
+                model=model,
+                X_cat_test=train_cat,
+                X_cont_test=train_cont,
+                X_project_test=train_project_text,
+                X_resource_test=train_resource_text,
+                batch_size=64)
+            y_train_pred = test_dpcnn(**test_input_dict)
+            del train_project_text, train_resource_text
+        #end if
+    elif config['embedding']['tfidf']:
+        test_input_dict = dict(
+            model=model,
+            X_cat_test=train_cat,
+            X_cont_test=train_cont,
+            X_all_text_test=train_tfidf_text,
+            batch_size=64)
+        y_train_pred = test(**test_input_dict)
+        #end if
+    #end if
     del train_df, train_cat, train_cont, y_train, train_input_dict
     gc.collect()
 
@@ -1310,11 +1359,11 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             X_cont_test=test_cont,
             X_all_text_test=test_tfidf_text,
             batch_size=64)
-        y_pred = test(**test_input_dict)  
+        y_pred = test(**test_input_dict)
         #end if
     #end if
 
-    return y_pred
+    return y_pred, y_train_pred
 #end def
 
 
@@ -1330,13 +1379,6 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
             'project_resource_summary']
         n_features = [400, 5000, 400]
         for c_i, c in tqdm(enumerate(cols)):
-            # tfidf_vec = TfidfVectorizer(
-            #     max_features=n_features[c_i],
-            #     min_df=3,
-            #     norm='l2',
-            #     ngrams=(1, 3))
-            # tfidf_vec.fit(df_all[c])
-
             tfidf_vec = TfidfVectorizer(
                 max_features=n_features[c_i],
                 sublinear_tf=True,
@@ -1426,14 +1468,14 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 
     # Build the model
     cnt = 0
-    p_buf = []
+    y_pred_buf = []
+    y_train_buf = []
     n_splits = 5
     n_repeats = 1
     kf = RepeatedKFold(
         n_splits=n_splits,
         n_repeats=n_repeats,
         random_state=0)
-    auc_buf = []
 
     for train_index, valid_index in kf.split(X_train):
         print('Fold {}/{}'.format(cnt + 1, n_splits))
@@ -1462,31 +1504,25 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
             verbose_eval=100,
         )
 
-        # p = model.predict(X_train.loc[valid_index], num_iteration=model.best_iteration)
-        p = model.predict(X_train[valid_index], num_iteration=model.best_iteration)
-        auc = roc_auc_score(y_train[valid_index], p)
-
-        print('{} AUC: {}'.format(cnt, auc))
-
-        # p = model.predict(X_test, num_iteration=model.best_iteration)
-        p = model.predict(X_test, num_iteration=model.best_iteration)
-        if len(p_buf) == 0:
-            p_buf = np.array(p)
+        test_p = model.predict(X_test, num_iteration=model.best_iteration)
+        train_p = model.predict(X_train, num_iteration=model.best_iteration)
+        if len(y_pred_buf) == 0:
+            y_pred_buf = np.array(test_p)
+            y_train_buf = np.array(train_p)
         else:
-            p_buf += np.array(p)
-        auc_buf.append(auc)
+            y_pred_buf += np.array(test_p)
+            y_train_buf += np.array(train_p)
 
         cnt += 1
-        # if cnt > 0:  # Comment this to run several folds
-        #     break
 
         del model
         gc.collect()
     #end for
 
-    preds = p_buf / cnt
+    y_pred = y_pred_buf / cnt
+    y_train_pred = y_train_buf / cnt
 
-    return preds
+    return y_pred, y_train_pred
 #end def
 
 
@@ -1595,8 +1631,9 @@ def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], catego
     model = train_xgboost(X_train, y_train)
 
     y_pred = test_xgboost(model, X_test)
+    y_train_pred = test_xgboost(model, X_train)
 
-    return y_pred
+    return y_pred, y_train_pred
 #end def
 
 
@@ -1688,9 +1725,10 @@ def prepare_rfc(train_df, test_df, old=False, continuous_features=[], categorica
     rfc_model.fit(train_features, y_train)
 
     y_pred = rfc_model.predict_proba(test_features)[:, 1]
+    y_train_pred = rfc_model.predict_proba(train_features)[:, 1]
     logger.info("RandomForestClassifier Done")
 
-    return y_pred
+    return y_pred, y_train_pred
 #end def
 
 
@@ -1795,7 +1833,15 @@ def prepare_ftrl(train_df, test_df, old=False, continuous_features=[], categoric
         y_pred[pred_nan] = np.nanmean(y_pred)
     y_pred = sigmoid(y_pred)
 
-    return y_pred
+    y_train_pred = ftrl_model.predict(train_features)
+    pred_nan = np.isnan(y_train_pred)
+    if pred_nan.shape[0] == y_train_pred.shape[0]:
+        y_train_pred[pred_nan] = 0
+    else:
+        y_train_pred[pred_nan] = np.nanmean(y_train_pred)
+    y_train_pred = sigmoid(y_train_pred)
+
+    return y_pred, y_train_pred
 #end def
 
 
@@ -1816,21 +1862,20 @@ def main():
         old_train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'], old=old)
         old_test_df, _, _, _ = read(config['test'], quick=config['quick'], old=old)
 
-        old_test_df['project_is_approved'] = prepare_nn(
+        old_test_df['project_is_approved'], old_train_df['project_is_approved'] = prepare_nn(
             old_train_df,
             old_test_df,
             old=old,
             continuous_features=continuous_features,
             categorical_features=categorical_features,
             string_features=string_features)
-        del old_train_df
         gc.collect()
 
         old = False
         new_train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'], old=old)
         new_test_df, _, _, _ = read(config['test'], quick=config['quick'], old=old)
 
-        new_test_df['project_is_approved'] = prepare_nn(
+        new_test_df['project_is_approved'], new_train_df['project_is_approved'] = prepare_nn(
             new_train_df,
             new_test_df,
             old=old,
@@ -1839,54 +1884,57 @@ def main():
             string_features=string_features)
 
         test_df = pd.concat([old_test_df, new_test_df], ignore_index=True)
-        del new_train_df, old_test_df, new_test_df
+        train_df = pd.concat([old_train_df, new_train_df], ignore_index=True)
+        del old_train_df, new_train_df, old_test_df, new_test_df
     else:
         train_df, continuous_features, categorical_features, string_features = read(config['train'], quick=config['quick'])
         test_df, _, _, _ = read(config['test'], quick=config['quick'])
 
         if config['model_type']['lgbm']:
-            test_df['project_is_approved'] = prepare_lgbm(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_lgbm(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         elif config['model_type']['xgb']:
-            test_df['project_is_approved'] = prepare_xgboost(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_xgboost(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         elif config['model_type']['rfc']:
-            test_df['project_is_approved'] = prepare_rfc(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_rfc(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         elif config['model_type']['ftrl']:
-            test_df['project_is_approved'] = prepare_ftrl(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_ftrl(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         else:
-            test_df['project_is_approved'] = prepare_nn(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_nn(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         #end if
-        del train_df
     #end if
     gc.collect()
+    logger.info('Writing train results to: {}'.format(config['train_output_csv']))
+    out_df = train_df[['id', 'project_is_approved']]
+    out_df.to_csv(config['train_output_csv'], index=False)
 
-    logger.info('Writing results to: {}'.format(config['output_csv']))
+    logger.info('Writing test results to: {}'.format(config['test_output_csv']))
     out_df = test_df[['id', 'project_is_approved']]
-    out_df.to_csv(config['output_csv'], index=False)
+    out_df.to_csv(config['test_output_csv'], index=False)
 #end def
 
 
