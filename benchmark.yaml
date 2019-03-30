@@ -8,8 +8,8 @@ resources: data/resources.csv
 quick: False #set True if want to quickly test if the script runs smoothly
 batch_size: 1024
 epochs: 3
-train_output_csv: nn_use_best_train.csv #to be changed for each experiment
-test_output_csv: nn_use_best_test.csv #to be changed for each experiment
+train_output_csv: ftrl_best_train.csv #to be changed for each experiment
+test_output_csv: ftrl_best_test.csv #to be changed for each experiment
 
 # seed
 seed: 0
@@ -39,8 +39,8 @@ common_word_count: True #GY
 
 # Categorical Features - only set one of them to be True
 cat_encoding:
-  one_hot_encoding: True #benchmark
-  mean_encoding: False #Kennard
+  one_hot_encoding: False #benchmark
+  mean_encoding: True #Kennard
   count_encoding: False #Kennard
 
 # Numerical Features
@@ -48,9 +48,9 @@ polynomial: True #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
-  nn: True #benchmark
+  nn: False #benchmark
   dpcnn: False #not fully implemented yet, to be added by #Kennard
   xgb: False #implemented, added by #GY
   lgbm: False #implemented, to be added by #MR
   rfc: False #implemented, added by #Kennard
-  ftrl: False #implemented, added by #Kennard
+  ftrl: True #implemented, added by #Kennard
