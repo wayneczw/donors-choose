@@ -8,8 +8,8 @@ resources: data/resources.csv
 quick: False #set True if want to quickly test if the script runs smoothly
 batch_size: 1024
 epochs: 3
-train_output_csv: data/nn_use_best_train.csv #to be changed for each experiment
-test_output_csv: data/nn_use_best_test.csv #to be changed for each experiment
+train_output_csv: nn_use_best_train.csv #to be changed for each experiment
+test_output_csv: nn_use_best_test.csv #to be changed for each experiment
 
 # seed
 seed: 0
