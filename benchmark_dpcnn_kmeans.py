@@ -1328,11 +1328,11 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 hist = model.fit(x_train, _y_t, batch_size=dpcnn_batch_size, epochs=dpcnn_epoch, validation_data=(x_valid, y_valid),
                                  callbacks=[early_stopping], verbose=2)
                                  
-                #predict_valid = model.predict(x_valid, batch_size=1024)[:, 0]
+                predict_valid = model.predict(x_valid, batch_size=1024)[:, 0]
                 predict_test = model.predict(x_test, batch_size=1024)[:, 0]
                 
                 predict_test_kfolds.append(predict_test)
-                #predict_valid_kfolds[valid_index] = predict_valid
+                predict_valid_kfolds[valid_index] = predict_valid
 
             from functools import reduce
             y_pred = reduce(lambda x,y:x+y, predict_test_kfolds)  / 5 
@@ -1427,7 +1427,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         #end if
     #end if
 
-    return y_pred
+    return y_pred, predict_valid_kfolds
 #end def
 
 
@@ -1986,16 +1986,18 @@ def main():
                 categorical_features=categorical_features,
                 string_features=string_features)
         else:
-            test_df['project_is_approved'] = prepare_nn(
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_nn(
                 train_df,
                 test_df,
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
         #end if
-        del train_df
+        
     #end if
     gc.collect()
+    out_df = train_df[['id', 'project_is_approved']]
+    out_df.to_csv('train_pred_proba.csv', index=False)
 
     logger.info('Writing results to: {}'.format(config['output_csv']))
     out_df = test_df[['id', 'project_is_approved']]
