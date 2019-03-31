@@ -1281,7 +1281,6 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 text_max_features=text_max_features,
                 output_shape=1)
 
-            """
             from sklearn.model_selection import KFold
             from sklearn.model_selection import train_test_split
 
@@ -1312,13 +1311,13 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 _y_t, y_valid = y_train[train_index], y_train[valid_index]
                 
                 early_stopping = EarlyStopping(monitor='roc_auc_val', patience=1, mode='max',min_delta=0.0005) 
-                \""" 
+                """ 
                 X_tra, X_val, y_tra, y_val = train_test_split(x_train, _y_t, train_size=0.98, random_state=233)
                 X_tra = { 'project' : X_tra[:,:project_maxlen], 'resource' : X_tra[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : X_tra[:,maxlen+1:], 'cont_input' :X_tra[:,maxlen:maxlen+1] }
                 X_val = { 'project' : X_val[:,:project_maxlen], 'resource' : X_val[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : X_val[:,maxlen+1:], 'cont_input' :X_val[:,maxlen:maxlen+1] }
                 x_test = { 'project' : test_seq[:,:project_maxlen], 'resource' : test_seq[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : test_seq[:,maxlen+1:], 'cont_input' :test_seq[:,maxlen:maxlen+1] }
                 x_valid = { 'project' : x_valid[:,:project_maxlen], 'resource' : x_valid[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_valid[:,maxlen+1:], 'cont_input' :x_valid[:,maxlen:maxlen+1] }
-                \"""
+                """
                 x_train = { 'project_input' : x_train[:,:project_maxlen], 'resource_input' : x_train[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_train[:,maxlen+con_len:], 'cont_input' :x_train[:,maxlen:maxlen+con_len] }
                 x_test = { 'project_input' : test_seq[:,:project_maxlen], 'resource_input' : test_seq[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : test_seq[:,maxlen+con_len:], 'cont_input' :test_seq[:,maxlen:maxlen+con_len] }
                 x_valid = { 'project_input' : x_valid[:,:project_maxlen], 'resource_input' : x_valid[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_valid[:,maxlen+con_len:], 'cont_input' :x_valid[:,maxlen:maxlen+con_len] }
@@ -1341,8 +1340,6 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
             train_input_dict = dict()
             """
-
-            
             train_input_dict = dict(
                 model=model,
                 X_cat_train=train_cat,
@@ -1354,7 +1351,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 batch_size=config['batch_size'],
                 epochs=config['epochs'])
             model = train_dpcnn(**train_input_dict)
-            
+            """
         #end if
     elif config['embedding']['tfidf']:
         model = build_model_tfidf(
@@ -1407,8 +1404,8 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 batch_size=64)
             y_pred = test(**test_input_dict)
         elif config['model_type']['dpcnn']:
-            #pass
-        
+            pass
+            """
             test_input_dict = dict(
                 model=model,
                 X_cat_test=test_cat,
@@ -1417,7 +1414,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
                 X_resource_test=test_resource_text,
                 batch_size=64)
             y_pred = test_dpcnn(**test_input_dict)
-            
+            """
         #end if
     elif config['embedding']['tfidf']:
         test_input_dict = dict(

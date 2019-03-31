@@ -8,7 +8,7 @@ resources: data/resources.csv
 quick: False #set True if want to quickly test if the script runs smoothly
 batch_size: 1024
 epochs: 3
-output_csv: data/benchmark_output.csv #to be changed for each experiment
+output_csv: data/dpcnn_3epoch_output.csv #to be changed for each experiment
 
 # seed
 seed: 0
@@ -16,8 +16,8 @@ seed: 0
 # Text - only set one of them to be True
 embedding:
   tfidf: False #benchmark
-  use: True #ZW
-  word_vector: False #ZW
+  use: False #ZW
+  word_vector: True #ZW
   word_path: data/crawl-300d-2M.vec
 
 # Feature engineering - 
@@ -27,14 +27,14 @@ quantity: True #benchmark
 submission_time: True #benchmark
 polarity: True #benchmark
 subjectivity: False #WH
-sent_count: False #WH
-word_count: False #WH
+sent_count: True #WH
+word_count: True #WH
 max_price: False #WH
 mean_price: False #MR
 min_price: False #MR
-pos_count: False #GY
+pos_count: True #GY
 keyword_count: False #GY
-common_word_count: False #GY
+common_word_count: True #GY
 
 # Categorical Features - only set one of them to be True
 cat_encoding:
@@ -43,13 +43,13 @@ cat_encoding:
   count_encoding: False #Kennard
 
 # Numerical Features
-polynomial: False #implemented yet, added by #WH
+polynomial: True #implemented yet, added by #WH
 
 # Model architecture - only set one of them to be True
 model_type:
   nn: False #benchmark
-  dpcnn: False #not fully implemented yet, to be added by #Kennard
+  dpcnn: True #not fully implemented yet, to be added by #Kennard
   xgb: False #implemented, added by #GY
-  lgbm: True #implemented, to be added by #MR
+  lgbm: False #implemented, to be added by #MR
   rfc: False #implemented, added by #Kennard
   ftrl: False #implemented, added by #Kennard
