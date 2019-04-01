@@ -14,6 +14,7 @@ import joblib
 from category_encoders.target_encoder import TargetEncoder
 
 from tqdm import tqdm
+from functools import reduce
 
 from keras import backend as K
 from keras import optimizers
@@ -50,6 +51,7 @@ from sklearn.model_selection import RepeatedKFold
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import KFold
 
 from wordbatch.models import FTRL
 
@@ -86,7 +88,7 @@ for k, v in config.items():
                 raise Exception("Should only enable one of the parameters under <{}>".format(k))
         continue
     else:
-        print("{}:{}".format(k,v))
+        print("{}:{}".format(k, v))
 print('='*50)
 
 
@@ -214,11 +216,6 @@ def read(df_path, old=True, quick=False):
             string_features.append('all_text')
         elif config['embedding']['use']:
             if config['model_type']['nn']:
-            #     string_features.extend([
-            #         'project_title', 'project_essay_1',
-            #         'project_essay_2', 'project_resource_summary',
-            #         'description'])
-            # else:
                 string_features.extend([
                     'project_title', 'project_essay_1',
                     'project_essay_2', 'project_essay_3',
@@ -246,15 +243,8 @@ def read(df_path, old=True, quick=False):
 
     df['teacher_prefix'] = df['teacher_prefix'].fillna('Teacher')
 
-
     if config['model_type']['dpcnn']:
-
-        #df['project_desc'] = df['project_subject_categories'].str.cat(df['project_subject_subcategories','project_title','project_resource_summary','project_essay_1', 'project_essay_2', 'project_essay_3', 'project_essay_4'], sep='. ', na_rep=' ')
-
         df['project_desc'] = df['project_subject_categories'].astype(str) + df['project_subject_subcategories'].astype(str) + df['project_title'].astype(str) + df['project_resource_summary'].astype(str)+ df['project_essay_1'].astype(str)+df['project_essay_2'].astype(str)+ df['project_essay_3'].astype(str)+df['project_essay_4'].astype(str)
-
-        #df['project_desc'] = df[['project_subject_categories','project_subject_subcategories','project_title','project_resource_summary','project_essay_1', 'project_essay_2', 'project_essay_3', 'project_essay_4' ]].apply(lambda x: ' '.join(x), axis=1 )
-        # df['project_desc'] = df['project_desc'].apply(int,axis=1)
         string_features.append('project_desc')
         string_features.append('description')
 
@@ -342,7 +332,8 @@ def build_model_word_vector(
     dropout_rate=0,
     kernel_regularizer=0,
     activity_regularizer=0,
-    bias_regularizer=0, **kwargs):
+    bias_regularizer=0,
+    **kwargs):
     
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
@@ -405,7 +396,8 @@ def build_model_tfidf(
     dropout_rate=0,
     kernel_regularizer=0,
     activity_regularizer=0,
-    bias_regularizer=0, **kwargs):
+    bias_regularizer=0,
+    **kwargs):
     
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
@@ -472,7 +464,8 @@ def build_model_use(
     kernel_regularizer=0,
     activity_regularizer=0,
     bias_regularizer=0,
-    old=False, **kwargs):
+    old=False,
+    **kwargs):
     
     cat_input = Input(cat_input_shape, name='cat_input')
     cat = Dense(
@@ -622,25 +615,6 @@ def build_model_dpcnn(
     spatial_dropout = 0.2
     dense_dropout = 0.05
 
-    logger.info("Setting up DPCNN")
-    """
-    cat_input = Input(cat_input_shape, name='cat_input')
-    cat = Dense(
-        16,
-        activation='relu',
-        kernel_regularizer=regularizers.l2(kernel_regularizer),
-        bias_regularizer=regularizers.l2(bias_regularizer))(cat_input)  # down size the learnt representation
-    cat = Dropout(dropout_rate)(cat)
-
-    cont_input = Input(cont_input_shape, name='cont_input')
-    cont = Dense(
-        16,
-        activation='relu',
-        kernel_regularizer=regularizers.l2(kernel_regularizer),
-        bias_regularizer=regularizers.l2(bias_regularizer))(cont_input)  # down size the learnt representation
-    cont = Dropout(dropout_rate)(cont)
-    """
-
     # Project dpcnn
     project_input = Input(shape=project_input_shape, name='project_input')
     emb_project = Embedding(
@@ -708,16 +682,12 @@ def build_model_dpcnn(
     rs_output = BatchNormalization()(rs_output)
 
     # combine
-    # num_input = Input(shape=num_input_shape, name='num_input')
-    # bn_inp_num = BatchNormalization()(num_input)
     cat_input = Input(cat_input_shape, name='cat_input')
     cont_input = Input(cont_input_shape, name='cont_input')
     cat = BatchNormalization()(cat_input)
     cont = BatchNormalization()(cont_input)
 
-
     conc = concatenate([pj_output, rs_output, cat, cont])
-
 
     output = Dense(dense_nr, activation='linear')(conc)
     output = BatchNormalization()(output)
@@ -746,7 +716,8 @@ def batch_iter_use(
     X_essay3=None,
     X_essay4=None,
     batch_size=128,
-    old=False, **kwargs):
+    old=False,
+    **kwargs):
 
     data_size = X_cat.shape[0]
     num_batches = int((data_size - 1) / batch_size) + 1
@@ -819,7 +790,8 @@ def train_use(
     X_essay4_train=None,
     batch_size=128,
     epochs=32,
-    old=False, **kwargs):
+    old=False,
+    **kwargs):
 
     tf_session = tf.Session()
     K.set_session(tf_session)
@@ -892,7 +864,8 @@ def predict_iter_use(
     X_essay3=None,
     X_essay4=None,
     batch_size=128,
-    old=False, **kwargs):
+    old=False,
+    **kwargs):
 
     data_size = X_cat.shape[0]
     num_batches = int((data_size - 1) / batch_size) + 1
@@ -954,7 +927,8 @@ def test_use(
     X_essay3_test=None,
     X_essay4_test=None,
     batch_size=128,
-    old=False, **kwargs):
+    old=False,
+    **kwargs):
 
     test_steps, test_batches = predict_iter_use(
         X_cat_test,
@@ -974,79 +948,15 @@ def test_use(
 #end def
 
 
-def test_dpcnn(
-    model,
-    X_cat_test,
-    X_cont_test,
-    X_project_test,
-    X_resource_test,
-    batch_size=128, **kwargs):
-
-    X_dict = dict(
-        cat_input=X_cat_test,
-        cont_input=X_cont_test,
-        project_input=X_project_test,
-        resource_input=X_resource_test,
-        )
-    return model.predict(X_dict, batch_size=batch_size)
-#end def
-
-
-def train_dpcnn(
-    model,
-    X_cat_train,
-    X_cont_train,
-    X_project_train,
-    X_resource_train,
-    y_train,
-    batch_size=128,
-    epochs=32, **kwargs):
-
-    tf_session = tf.Session()
-    K.set_session(tf_session)
-    K.get_session().run(tf.tables_initializer())
-
-    init_op = tf.global_variables_initializer()
-    tf_session.run(init_op)
-
-    # define early stopping callback
-    callbacks_list = []
-    early_stopping = dict(monitor='loss', patience=1, min_delta=0.001, verbose=1)
-    model_checkpoint = dict(filepath='./weights/{loss:.5f}_{epoch:04d}.weights.h5',
-                            save_best_only=False,
-                            save_weights_only=True,
-                            mode='auto',
-                            period=1,
-                            verbose=1)
-
-    earlystop = EarlyStopping(**early_stopping)
-    callbacks_list.append(earlystop)
-
-    checkpoint = ModelCheckpoint(**model_checkpoint)
-    callbacks_list.append(checkpoint)
-
-    X_dict = dict(
-        cat_input=X_cat_train,
-        cont_input=X_cont_train,
-        project_input=X_project_train,
-        resource_input=X_resource_train,
-        )
-    y_dict = dict(output=y_train)
-
-    model.fit(X_dict, y_dict, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list)
-
-    return model
-#end def
-
-
-def train(
+def train_nn(
     model,
     X_cat_train,
     X_cont_train,
     X_all_text_train,
     y_train,
     batch_size=128,
-    epochs=32, **kwargs):
+    epochs=32,
+    **kwargs):
 
     tf_session = tf.Session()
     K.set_session(tf_session)
@@ -1082,12 +992,13 @@ def train(
 #end def
 
 
-def test(
+def test_nn(
     model,
     X_cat_test,
     X_cont_test,
     X_all_text_test,
-    batch_size=128, **kwargs):
+    batch_size=128,
+    **kwargs):
 
     x_dict = dict(
         cat_input=X_cat_test,
@@ -1098,67 +1009,7 @@ def test(
 #end def
 
 
-def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
-    ############################
-    logger.info("Preparing word embeddings")
-    if config['embedding']['tfidf']:
-        tfidf_vec = TfidfVectorizer(
-            max_features=10000,
-            sublinear_tf=True,
-            strip_accents='unicode',
-            stop_words='english',
-            analyzer='word',
-            token_pattern=r'\w{1,}',
-            ngram_range=(1, 3),
-            dtype=np.float32,
-            norm='l2',
-            min_df=5,
-            max_df=.9)
-        train_tfidf_text = tfidf_vec.fit_transform(train_df['all_text']).toarray()
-        test_tfidf_text = tfidf_vec.transform(test_df['all_text']).toarray()    
-    elif config['embedding']['word_vector']:
-        text_max_features = 100000
-        text_max_len = 300
-        text_embed_size = 300
-        if config['model_type']['nn']:
-            train_word_text, test_word_text, text_embedding_matrix = text_tokenize(
-                train_df, test_df, col_name='all_text',
-                num_words=text_max_features, maxlen=text_max_len,
-                embeddings_index=embeddings_index, embed_size=text_embed_size)
-        elif config['model_type']['dpcnn']:
-            logger.info('Computing in embedding matrixes....')
-            tokenizer = text.Tokenizer(num_words=text_max_features)
-            tokenizer.fit_on_texts(list(train_df['project_desc']) + list(test_df['project_desc']) + list(train_df['description']) + list(test_df['description']))
-            train_tokenized_project_desc = tokenizer.texts_to_sequences(train_df['project_desc'].tolist())
-            test_tokenized_project_desc = tokenizer.texts_to_sequences(test_df['project_desc'].tolist())
-            train_tokenized_resource_desc = tokenizer.texts_to_sequences(train_df['description'].tolist())
-            test_tokenized_resource_desc = tokenizer.texts_to_sequences(test_df['description'].tolist())
-            
-            train_project_text = sequence.pad_sequences(train_tokenized_project_desc, maxlen=text_max_len)
-            test_project_text = sequence.pad_sequences(test_tokenized_project_desc, maxlen=text_max_len)
-
-            train_resource_text = sequence.pad_sequences(train_tokenized_resource_desc, maxlen=text_max_len)
-            test_resource_text = sequence.pad_sequences(test_tokenized_resource_desc, maxlen=text_max_len)
-
-            word_index = tokenizer.word_index
-            #prepare embedding matrix
-            num_words = min(text_max_features, len(word_index) + 1)
-            text_embedding_matrix = np.zeros((text_max_features, text_embed_size))
-            for word, i in word_index.items():
-                if i >= num_words:
-                    continue
-                embedding_vector = embeddings_index.get(word)
-                if embedding_vector is not None:
-                    # words not found in embedding index will be all-zeros.
-                    text_embedding_matrix[i] = embedding_vector
-
-            logger.info('Done computing in embedding matrixes....')
-    elif config['embedding']['use']:
-        pass
-    #end if
-
-    ############################
-    logger.info("Encoding categorical features")
+def get_cat(train_df, test_df, categorical_features):
     # encode categorical features
     if config['cat_encoding']['one_hot_encoding']:
         cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
@@ -1186,8 +1037,11 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         #end for
     #end if
 
-    ############################
-    logger.info("Normalizing continuous features")
+    return train_cat, test_cat
+#end def
+
+
+def get_cont(train_df, test_df, continuous_features):
     # normalize train continuous features
     scaler = MinMaxScaler()
     train_cont = scaler.fit_transform(train_df[continuous_features])
@@ -1199,6 +1053,49 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
         train_cont = poly.fit_transform(train_cont)
         test_cont = poly.transform(test_cont)
     #end if
+
+    return train_cont, test_cont
+#end def
+
+
+def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+    ############################
+    logger.info("Preparing word embeddings")
+    if config['embedding']['tfidf']:
+        tfidf_vec = TfidfVectorizer(
+            max_features=10000,
+            sublinear_tf=True,
+            strip_accents='unicode',
+            stop_words='english',
+            analyzer='word',
+            token_pattern=r'\w{1,}',
+            ngram_range=(1, 3),
+            dtype=np.float32,
+            norm='l2',
+            min_df=5,
+            max_df=.9)
+        train_tfidf_text = tfidf_vec.fit_transform(train_df['all_text']).toarray()
+        test_tfidf_text = tfidf_vec.transform(test_df['all_text']).toarray()    
+    elif config['embedding']['word_vector']:
+        text_max_features = 100000
+        text_max_len = 300
+        text_embed_size = 300
+        train_word_text, test_word_text, text_embedding_matrix = text_tokenize(
+            train_df, test_df, col_name='all_text',
+            num_words=text_max_features, maxlen=text_max_len,
+            embeddings_index=embeddings_index, embed_size=text_embed_size)
+        logger.info('Done computing in embedding matrixes....')
+    elif config['embedding']['use']:
+        pass
+    #end if
+
+    ############################
+    logger.info("Encoding categorical features")
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
+
+    ############################
+    logger.info("Normalizing continuous features")
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
 
     ############################
     # prepare y
@@ -1233,107 +1130,25 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         model = train_use(**train_input_dict)
     elif config['embedding']['word_vector']:
-        if config['model_type']['nn']:
-            model = build_model_word_vector(
-                cat_input_shape=train_cat.shape[1:],
-                cont_input_shape=train_cont.shape[1:],
-                all_text_input_shape=train_word_text.shape[1:],
-                text_embedding_matrix=text_embedding_matrix,
-                text_max_features=text_max_features,
-                output_shape=1)
-            train_input_dict = dict(
-                model=model,
-                X_cat_train=train_cat,
-                X_cont_train=train_cont,
-                X_all_text_train=train_word_text,
-                y_train=y_train,
-                class_weight=None,
-                batch_size=config['batch_size'],
-                epochs=config['epochs'])
-            model = train(**train_input_dict)
-        elif config['model_type']['dpcnn']:
-            model = build_model_dpcnn(
-                cat_input_shape=train_cat.shape[1:],
-                cont_input_shape=train_cont.shape[1:],
-                project_input_shape=train_project_text.shape[1:],
-                resource_input_shape=train_resource_text.shape[1:],
-                text_embedding_matrix=text_embedding_matrix,
-                text_max_features=text_max_features,
-                output_shape=1)
-            from sklearn.model_selection import KFold
-            from sklearn.model_selection import train_test_split
+        model = build_model_word_vector(
+            cat_input_shape=train_cat.shape[1:],
+            cont_input_shape=train_cont.shape[1:],
+            all_text_input_shape=train_word_text.shape[1:],
+            text_embedding_matrix=text_embedding_matrix,
+            text_max_features=text_max_features,
+            output_shape=1)
+        print(model.summary())
 
-            project_maxlen = text_max_len
-            resource_max_len = text_max_len
-            cat_len = train_cat.shape[1]
-            con_len = train_cont.shape[1]
-            maxlen = project_maxlen + resource_max_len
-
-            train_seq = np.hstack([train_project_text, train_resource_text])
-            train_num_features = np.hstack([train_cont, train_cat])
-            train_seq = np.hstack([train_seq, train_num_features])
-
-            test_seq = np.hstack([test_project_text, test_resource_text])
-            test_num_features = np.hstack([test_cont, test_cat])
-            test_seq = np.hstack([test_seq, test_num_features])
-
-            dpcnn_folds = 5
-            kfold = KFold(n_splits=dpcnn_folds, random_state= 9527)
-            predict_test_kfolds = []
-            predict_valid_kfolds = np.zeros((train_seq.shape[0]))
-            dpcnn_epoch = 5
-            dpcnn_batch_size = 1024
-
-            for (fold_index, (train_index, valid_index)) in enumerate(kfold.split(train_seq)):
-    
-                x_train, x_valid = train_seq[train_index], train_seq[valid_index]
-                _y_t, y_valid = y_train[train_index], y_train[valid_index]
-                
-                early_stopping = EarlyStopping(monitor='roc_auc_val', patience=1, mode='max',min_delta=0.0005) 
-                """ 
-                X_tra, X_val, y_tra, y_val = train_test_split(x_train, _y_t, train_size=0.98, random_state=233)
-                X_tra = { 'project' : X_tra[:,:project_maxlen], 'resource' : X_tra[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : X_tra[:,maxlen+1:], 'cont_input' :X_tra[:,maxlen:maxlen+1] }
-                X_val = { 'project' : X_val[:,:project_maxlen], 'resource' : X_val[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : X_val[:,maxlen+1:], 'cont_input' :X_val[:,maxlen:maxlen+1] }
-                x_test = { 'project' : test_seq[:,:project_maxlen], 'resource' : test_seq[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : test_seq[:,maxlen+1:], 'cont_input' :test_seq[:,maxlen:maxlen+1] }
-                x_valid = { 'project' : x_valid[:,:project_maxlen], 'resource' : x_valid[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_valid[:,maxlen+1:], 'cont_input' :x_valid[:,maxlen:maxlen+1] }
-                """
-                x_train = { 'project_input' : x_train[:,:project_maxlen], 'resource_input' : x_train[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_train[:,maxlen+con_len:], 'cont_input' :x_train[:,maxlen:maxlen+con_len] }
-                x_test = { 'project_input' : test_seq[:,:project_maxlen], 'resource_input' : test_seq[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : test_seq[:,maxlen+con_len:], 'cont_input' :test_seq[:,maxlen:maxlen+con_len] }
-                x_valid = { 'project_input' : x_valid[:,:project_maxlen], 'resource_input' : x_valid[:,project_maxlen:project_maxlen+resource_max_len], 'cat_input' : x_valid[:,maxlen+con_len:], 'cont_input' :x_valid[:,maxlen:maxlen+con_len] }
-
-
-    
-
-                hist = model.fit(x_train, _y_t, batch_size=dpcnn_batch_size, epochs=dpcnn_epoch, validation_data=(x_valid, y_valid),
-                                 callbacks=[early_stopping], verbose=2)
-                                 
-                predict_valid = model.predict(x_valid, batch_size=1024)[:, 0]
-                predict_test = model.predict(x_test, batch_size=1024)[:, 0]
-                
-                predict_test_kfolds.append(predict_test)
-                predict_valid_kfolds[valid_index] = predict_valid
-                y_train_pred = predict_valid_kfolds
-
-
-            from functools import reduce
-            y_pred = reduce(lambda x,y:x+y, predict_test_kfolds)  / 5 
-
-
-            train_input_dict = dict()
-            """
-            train_input_dict = dict(
-                model=model,
-                X_cat_train=train_cat,
-                X_cont_train=train_cont,
-                X_project_train=train_project_text,
-                X_resource_train=train_resource_text,
-                y_train=y_train,
-                class_weight=None,
-                batch_size=config['batch_size'],
-                epochs=config['epochs'])
-            model = train_dpcnn(**train_input_dict)
-            """
-        #end if
+        train_input_dict = dict(
+            model=model,
+            X_cat_train=train_cat,
+            X_cont_train=train_cont,
+            X_all_text_train=train_word_text,
+            y_train=y_train,
+            class_weight=None,
+            batch_size=config['batch_size'],
+            epochs=config['epochs'])
+        model = train_nn(**train_input_dict)
     elif config['embedding']['tfidf']:
         model = build_model_tfidf(
             cat_input_shape=train_cat.shape[1:],
@@ -1352,7 +1167,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             batch_size=config['batch_size'],
             epochs=config['epochs'])
 
-        model = train(**train_input_dict)
+        model = train_nn(**train_input_dict)
     #end if
 
     ############################
@@ -1374,25 +1189,13 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         y_train_pred = test_use(**test_input_dict)
     elif config['embedding']['word_vector']:
-        if config['model_type']['nn']:
-            test_input_dict = dict(
-                model=model,
-                X_cat_test=train_cat,
-                X_cont_test=train_cont,
-                X_all_text_test=train_word_text,
-                batch_size=64)
-            y_train_pred = test(**test_input_dict)
-        elif config['model_type']['dpcnn']:
-            test_input_dict = dict(
-                model=model,
-                X_cat_test=train_cat,
-                X_cont_test=train_cont,
-                X_project_test=train_project_text,
-                X_resource_test=train_resource_text,
-                batch_size=64)
-            y_train_pred = test_dpcnn(**test_input_dict)
-            del train_project_text, train_resource_text
-        #end if
+        test_input_dict = dict(
+            model=model,
+            X_cat_test=train_cat,
+            X_cont_test=train_cont,
+            X_all_text_test=train_word_text,
+            batch_size=64)
+        y_train_pred = test_nn(**test_input_dict)
     elif config['embedding']['tfidf']:
         test_input_dict = dict(
             model=model,
@@ -1400,7 +1203,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             X_cont_test=train_cont,
             X_all_text_test=train_tfidf_text,
             batch_size=64)
-        y_train_pred = test(**test_input_dict)
+        y_train_pred = test_nn(**test_input_dict)
         #end if
     #end if
     del train_df, train_cat, train_cont, y_train, train_input_dict
@@ -1425,27 +1228,13 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 
         y_pred = test_use(**test_input_dict)
     elif config['embedding']['word_vector']:
-        if config['model_type']['nn']:
-            test_input_dict = dict(
-                model=model,
-                X_cat_test=test_cat,
-                X_cont_test=test_cont,
-                X_all_text_test=test_word_text,
-                batch_size=64)
-            y_pred = test(**test_input_dict)
-        elif config['model_type']['dpcnn']:
-            pass
-            """
-            test_input_dict = dict(
-                model=model,
-                X_cat_test=test_cat,
-                X_cont_test=test_cont,
-                X_project_test=test_project_text,
-                X_resource_test=test_resource_text,
-                batch_size=64)
-            y_pred = test_dpcnn(**test_input_dict)
-            """
-        #end if
+        test_input_dict = dict(
+            model=model,
+            X_cat_test=test_cat,
+            X_cont_test=test_cont,
+            X_all_text_test=test_word_text,
+            batch_size=64)
+        y_pred = test_nn(**test_input_dict)
     elif config['embedding']['tfidf']:
         test_input_dict = dict(
             model=model,
@@ -1453,7 +1242,7 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
             X_cont_test=test_cont,
             X_all_text_test=test_tfidf_text,
             batch_size=64)
-        y_pred = test(**test_input_dict)
+        y_pred = test_nn(**test_input_dict)
         #end if
     #end if
 
@@ -1461,7 +1250,126 @@ def prepare_nn(train_df, test_df, old=False, continuous_features=[], categorical
 #end def
 
 
-def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+def prepare_dpcnn(train_df, test_df, continuous_features=[], categorical_features=[], string_features=[]):
+    ############################
+    logger.info("Preparing word embeddings")
+    text_max_features = 100000
+    text_max_len = 300
+    text_embed_size = 300
+
+    logger.info('Computing in embedding matrixes....')
+    tokenizer = text.Tokenizer(num_words=text_max_features)
+    tokenizer.fit_on_texts(list(train_df['project_desc']) + list(test_df['project_desc']) + list(train_df['description']) + list(test_df['description']))
+    train_tokenized_project_desc = tokenizer.texts_to_sequences(train_df['project_desc'].tolist())
+    test_tokenized_project_desc = tokenizer.texts_to_sequences(test_df['project_desc'].tolist())
+    train_tokenized_resource_desc = tokenizer.texts_to_sequences(train_df['description'].tolist())
+    test_tokenized_resource_desc = tokenizer.texts_to_sequences(test_df['description'].tolist())
+    
+    train_project_text = sequence.pad_sequences(train_tokenized_project_desc, maxlen=text_max_len)
+    test_project_text = sequence.pad_sequences(test_tokenized_project_desc, maxlen=text_max_len)
+
+    train_resource_text = sequence.pad_sequences(train_tokenized_resource_desc, maxlen=text_max_len)
+    test_resource_text = sequence.pad_sequences(test_tokenized_resource_desc, maxlen=text_max_len)
+
+    word_index = tokenizer.word_index
+    #prepare embedding matrix
+    num_words = min(text_max_features, len(word_index) + 1)
+    text_embedding_matrix = np.zeros((text_max_features, text_embed_size))
+    for word, i in word_index.items():
+        if i >= num_words:
+            continue
+        embedding_vector = embeddings_index.get(word)
+        if embedding_vector is not None:
+            # words not found in embedding index will be all-zeros.
+            text_embedding_matrix[i] = embedding_vector
+    #end for
+    logger.info('Done computing in embedding matrixes....')
+
+    ############################
+    logger.info("Encoding categorical features")
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
+
+    ############################
+    logger.info("Normalizing continuous features")
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
+
+    ############################
+    # prepare y
+    y_train = pd.to_numeric(train_df['project_is_approved']).values
+
+    ############################
+    logger.info("Setting up DPCNN")
+
+    dpcnn_folds = 5
+    kfold = KFold(n_splits=dpcnn_folds, random_state=9527)
+    predict_test_kfolds = []
+    predict_train_kfolds = []
+    dpcnn_epoch = 5
+    dpcnn_batch_size = 1024
+
+    X_train = dict(
+        project_input=train_project_text,
+        resource_input=train_resource_text,
+        cat_input=train_cat,
+        cont_input=train_cont,
+        )
+    X_test = dict(
+        project_input=test_project_text,
+        resource_input=test_resource_text,
+        cat_input=test_cat,
+        cont_input=test_cont,
+        )
+
+    for (fold_index, (train_index, val_index)) in enumerate(kfold.split(train_cat)):
+        model = build_model_dpcnn(
+            cat_input_shape=train_cat.shape[1:],
+            cont_input_shape=train_cont.shape[1:],
+            project_input_shape=train_project_text.shape[1:],
+            resource_input_shape=train_resource_text.shape[1:],
+            text_embedding_matrix=text_embedding_matrix,
+            text_max_features=text_max_features,
+            output_shape=1)
+
+        early_stopping = EarlyStopping(monitor='roc_auc_val', patience=1, mode='max', min_delta=0.0005)
+
+        k_x_train = dict(
+            project_input=train_project_text[train_index],
+            resource_input=train_resource_text[train_index],
+            cat_input=train_cat[train_index],
+            cont_input=train_cont[train_index],
+            )
+        k_y_train = y_train[train_index]
+
+        k_x_val = dict(
+            project_input=train_project_text[val_index],
+            resource_input=train_resource_text[val_index],
+            cat_input=train_cat[val_index],
+            cont_input=train_cont[val_index],
+            )
+        k_y_val = y_train[val_index]
+
+        model.fit(
+            k_x_train,
+            k_y_train,
+            batch_size=dpcnn_batch_size,
+            epochs=dpcnn_epoch,
+            validation_data=(k_x_val, k_y_val),
+            callbacks=[early_stopping], verbose=1)
+
+        predict_test = model.predict(X_test, batch_size=1024)[:, 0]
+        predict_train = model.predict(X_train, batch_size=1024)[:, 0]
+
+        predict_test_kfolds.append(predict_test)
+        predict_train_kfolds.append(predict_train)
+    #end for
+
+    y_pred = reduce(lambda x, y: x+y, predict_test_kfolds) / dpcnn_folds
+    y_train_pred = reduce(lambda x, y: x+y, predict_train_kfolds) / dpcnn_folds
+    return y_pred, y_train_pred
+#end def
+
+
+def prepare_lgbm(train_df, test_df, continuous_features=[], categorical_features=[], string_features=[]):
     df_all = pd.concat([train_df, test_df], axis=0)
 
     ############################
@@ -1510,46 +1418,11 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 
     ############################
     logger.info("Encoding categorical features")
-    # encode categorical features
-    if config['cat_encoding']['one_hot_encoding']:
-        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values)
-        test_cat = cat_encoder.transform(test_df[categorical_features].values)
-    elif config['cat_encoding']['mean_encoding']:
-        cat_encoder = TargetEncoder()
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values, pd.to_numeric(train_df['project_is_approved']).values).values
-        test_cat = cat_encoder.transform(test_df[categorical_features].values).values
-    elif config['cat_encoding']['count_encoding']:
-        for i, f in enumerate(categorical_features):
-            cat_encoder = CountVectorizer(
-                binary=True,
-                ngram_range=(1, 1),
-                tokenizer=lambda x: [a.strip() for a in x.split(',')])
-            if i == 0:
-                train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                test_cat = cat_encoder.transform(test_df[f]).toarray()
-            else:
-                _train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                _test_cat = cat_encoder.transform(test_df[f]).toarray()
-                train_cat = np.hstack((train_cat, _train_cat))
-                test_cat = np.hstack((test_cat, _test_cat))
-            #end if
-        #end for
-    #end if
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
 
     ############################
     logger.info("Normalizing continuous features")
-    # normalize train continuous features
-    scaler = MinMaxScaler()
-    train_cont = scaler.fit_transform(train_df[continuous_features])
-    test_cont = scaler.transform(test_df[continuous_features])
-
-    # get polynomial array of all continuous attributes
-    if config['polynomial']:
-        poly = PolynomialFeatures()
-        train_cont = poly.fit_transform(train_cont)
-        test_cont = poly.transform(test_cont)
-    #end if
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
 
     ############################
     # prepare y
@@ -1620,7 +1493,7 @@ def prepare_lgbm(train_df, test_df, old=False, continuous_features=[], categoric
 #end def
 
 
-def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+def prepare_xgboost(train_df, test_df, continuous_features=[], categorical_features=[], string_features=[]):
     def test_xgboost(model, X_test):
         dtest = xgb.DMatrix(X_test)
 
@@ -1672,46 +1545,11 @@ def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], catego
 
     ############################
     logger.info("Encoding categorical features")
-    # encode categorical features
-    if config['cat_encoding']['one_hot_encoding']:
-        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values)
-        test_cat = cat_encoder.transform(test_df[categorical_features].values)
-    elif config['cat_encoding']['mean_encoding']:
-        cat_encoder = TargetEncoder()
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values, pd.to_numeric(train_df['project_is_approved']).values).values
-        test_cat = cat_encoder.transform(test_df[categorical_features].values).values
-    elif config['cat_encoding']['count_encoding']:
-        for i, f in enumerate(categorical_features):
-            cat_encoder = CountVectorizer(
-                binary=True,
-                ngram_range=(1, 1),
-                tokenizer=lambda x: [a.strip() for a in x.split(',')])
-            if i == 0:
-                train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                test_cat = cat_encoder.transform(test_df[f]).toarray()
-            else:
-                _train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                _test_cat = cat_encoder.transform(test_df[f]).toarray()
-                train_cat = np.hstack((train_cat, _train_cat))
-                test_cat = np.hstack((test_cat, _test_cat))
-            #end if
-        #end for
-    #end if
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
 
     ############################
     logger.info("Normalizing continuous features")
-    # normalize train continuous features
-    scaler = MinMaxScaler()
-    train_cont = scaler.fit_transform(train_df[continuous_features])
-    test_cont = scaler.transform(test_df[continuous_features])
-
-    # get polynomial array of all continuous attributes
-    if config['polynomial']:
-        poly = PolynomialFeatures()
-        train_cont = poly.fit_transform(train_cont)
-        test_cont = poly.transform(test_cont)
-    #end if
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
 
     ############################
     # prepare y
@@ -1731,7 +1569,7 @@ def prepare_xgboost(train_df, test_df, old=False, continuous_features=[], catego
 #end def
 
 
-def prepare_rfc(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
+def prepare_rfc(train_df, test_df, continuous_features=[], categorical_features=[], string_features=[]):
     ############################
     logger.info("Preparing word embeddings")
     if config['embedding']['tfidf']:
@@ -1756,46 +1594,11 @@ def prepare_rfc(train_df, test_df, old=False, continuous_features=[], categorica
 
     ############################
     logger.info("Encoding categorical features")
-    # encode categorical features
-    if config['cat_encoding']['one_hot_encoding']:
-        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values)
-        test_cat = cat_encoder.transform(test_df[categorical_features].values)
-    elif config['cat_encoding']['mean_encoding']:
-        cat_encoder = TargetEncoder()
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values, pd.to_numeric(train_df['project_is_approved']).values).values
-        test_cat = cat_encoder.transform(test_df[categorical_features].values).values
-    elif config['cat_encoding']['count_encoding']:
-        for i, f in enumerate(categorical_features):
-            cat_encoder = CountVectorizer(
-                binary=True,
-                ngram_range=(1, 1),
-                tokenizer=lambda x: [a.strip() for a in x.split(',')])
-            if i == 0:
-                train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                test_cat = cat_encoder.transform(test_df[f]).toarray()
-            else:
-                _train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                _test_cat = cat_encoder.transform(test_df[f]).toarray()
-                train_cat = np.hstack((train_cat, _train_cat))
-                test_cat = np.hstack((test_cat, _test_cat))
-            #end if
-        #end for
-    #end if
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
 
     ############################
     logger.info("Normalizing continuous features")
-    # normalize train continuous features
-    scaler = MinMaxScaler()
-    train_cont = scaler.fit_transform(train_df[continuous_features])
-    test_cont = scaler.transform(test_df[continuous_features])
-
-    # get polynomial array of all continuous attributes
-    if config['polynomial']:
-        poly = PolynomialFeatures()
-        train_cont = poly.fit_transform(train_cont)
-        test_cont = poly.transform(test_cont)
-    #end if
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
 
     ############################
     # prepare y
@@ -1826,8 +1629,7 @@ def prepare_rfc(train_df, test_df, old=False, continuous_features=[], categorica
 #end def
 
 
-def prepare_ftrl(train_df, test_df, old=False, continuous_features=[], categorical_features=[], string_features=[]):
-    
+def prepare_ftrl(train_df, test_df, continuous_features=[], categorical_features=[], string_features=[]):
     def sigmoid(x):
         return 1 / (1 + np.exp(-x))
     #end def
@@ -1856,46 +1658,11 @@ def prepare_ftrl(train_df, test_df, old=False, continuous_features=[], categoric
 
     ############################
     logger.info("Encoding categorical features")
-    # encode categorical features
-    if config['cat_encoding']['one_hot_encoding']:
-        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values)
-        test_cat = cat_encoder.transform(test_df[categorical_features].values)
-    elif config['cat_encoding']['mean_encoding']:
-        cat_encoder = TargetEncoder()
-        train_cat = cat_encoder.fit_transform(train_df[categorical_features].values, pd.to_numeric(train_df['project_is_approved']).values).values
-        test_cat = cat_encoder.transform(test_df[categorical_features].values).values
-    elif config['cat_encoding']['count_encoding']:
-        for i, f in enumerate(categorical_features):
-            cat_encoder = CountVectorizer(
-                binary=True,
-                ngram_range=(1, 1),
-                tokenizer=lambda x: [a.strip() for a in x.split(',')])
-            if i == 0:
-                train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                test_cat = cat_encoder.transform(test_df[f]).toarray()
-            else:
-                _train_cat = cat_encoder.fit_transform(train_df[f]).toarray()
-                _test_cat = cat_encoder.transform(test_df[f]).toarray()
-                train_cat = np.hstack((train_cat, _train_cat))
-                test_cat = np.hstack((test_cat, _test_cat))
-            #end if
-        #end for
-    #end if
+    train_cat, test_cat = get_cat(train_df, test_df, categorical_features)
 
     ############################
     logger.info("Normalizing continuous features")
-    # normalize train continuous features
-    scaler = MinMaxScaler()
-    train_cont = scaler.fit_transform(train_df[continuous_features])
-    test_cont = scaler.transform(test_df[continuous_features])
-
-    # get polynomial array of all continuous attributes
-    if config['polynomial']:
-        poly = PolynomialFeatures()
-        train_cont = poly.fit_transform(train_cont)
-        test_cont = poly.transform(test_cont)
-    #end if
+    train_cont, test_cont = get_cont(train_df, test_df, continuous_features)
 
     ############################
     # prepare y
@@ -2012,7 +1779,15 @@ def main():
                 continuous_features=continuous_features,
                 categorical_features=categorical_features,
                 string_features=string_features)
+        elif config['model_type']['dpcnn']:
+            test_df['project_is_approved'], train_df['project_is_approved'] = prepare_dpcnn(
+                train_df,
+                test_df,
+                continuous_features=continuous_features,
+                categorical_features=categorical_features,
+                string_features=string_features)
         else:
+            # config['model_type']['nn']
             test_df['project_is_approved'], train_df['project_is_approved'] = prepare_nn(
                 train_df,
                 test_df,
