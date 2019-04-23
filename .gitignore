@@ -3,7 +3,8 @@ images/
 venv/
 .DS_Store
 *.vec
-/data
+*_processed.csv
+*.joblib
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

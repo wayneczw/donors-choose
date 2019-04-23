@@ -48,6 +48,14 @@ price - price of resource requested
 
 	pip install -r requirements.txt
 
+	mkdir weights
+
+	mkdir data
+
+	mkdir results
+
+
+
 #### Download fastText Word Vector
 
 [Download](https://fasttext.cc/docs/en/english-vectors.html) fastText Word Vector - crawl-300d-2M.vec.zip.
