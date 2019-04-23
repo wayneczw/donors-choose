@@ -14,6 +14,13 @@ data type: csv size: 195MB binary classification problem https://www.kaggle.com/
 
 	mkdir results
 
+#### Large File Handling
+
+	git lfs install
+
+	git lfs track "*.csv"
+
+	git add .gitattributes
 
 
 #### Download fastText Word Vector
