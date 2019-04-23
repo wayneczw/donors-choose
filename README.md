@@ -118,3 +118,27 @@ The model trained under this experimental set up correspond to the model **Model
 
 
 ## Ensemble Learning
+Before writing the [ensemble_learning.py](ensemble_learning.py) script, make sure that all the csv files which contain the predication probabilities for both the training set and test set for the 7 base models are present inside a folder called [results](./results).
+
+Specially, we will need the following 14 csv files in the folder [results](./results):
+- 'rfc_best_test.csv',
+- 'lgbm_best_test.csv',
+- 'word_vector_best_test.csv',
+- 'xgboost_best_test.csv',
+- 'ftrl_best_test.csv',
+- 'nn_use_best_test.csv',
+- 'dpcnn_s2.3_countenco_test.csv'
+- 'rfc_best_train.csv',
+- 'lgbm_best_train.csv',
+- 'word_vector_train.csv',
+- 'xgboost_best_train.csv',
+- 'ftrl_best_train.csv',
+- 'nn_use_best_train.csv',
+- 'dpcnn_s2.3_countenco_train.csv'
+
+Run the following to ensemble the base models:
+
+	python -m ensemble_learning
+
+After running is completed, the final result output will be called "ensemble_output.csv" and it is stored in [results](./results).
+

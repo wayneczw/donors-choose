@@ -38,7 +38,7 @@ if (mode == 0):
     import lightgbm as lgb
     from sklearn.model_selection import train_test_split
 
-    df = pd.read_csv('train.csv')
+    df = pd.read_csv('data/train.csv')
     df.sort_values(by='id', inplace=True)
     train_target = df['project_is_approved'].values
 
