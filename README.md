@@ -51,7 +51,7 @@ After running [save_use_text.py](save_use_text.py), the following joblib files w
 - data/train_use.joblib
 - data/test_use.joblib
 
-## Experiment
+## Model Training with Different Experimental Setup
 This section briefly describes how to modify the config yaml file [benchmark.yaml](benchmark.yaml), so as to run different experimental settings. To be specific, we present 2 environmental set ups:
 - benchmark model setup
 - multi-channel USE model
